@@ -14,6 +14,7 @@ import {
   getTeamById,
 } from '@/lib/data-service';
 import { PerformanceMetrics, TeamMetrics } from '@/lib/types';
+import Avatar from '@/components/Avatar';
 import {
   BarChart3,
   TrendingUp,
@@ -85,9 +86,7 @@ function InternPerformanceCard({ userId }: { userId: string }) {
   return (
     <div className="card" style={{ padding: 'var(--spacing-xl)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-lg)', flexWrap: 'wrap' }}>
-        <div className="avatar avatar-lg" style={{ background: getAvatarColor(user.name) }}>
-          {getInitials(user.name)}
-        </div>
+        <Avatar name={user.name} avatarUrl={user.avatar_url} size="lg" />
         <div style={{ flex: 1, minWidth: 120 }}>
           <div style={{ fontWeight: 600, fontSize: 'var(--font-size-md)' }}>{user.name}</div>
           <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>

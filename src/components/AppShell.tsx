@@ -3,6 +3,8 @@
 import React, { useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
+import Avatar from './Avatar';
+import ProfileModal from './ProfileModal';
 import {
   LayoutDashboard,
   ClipboardList,
@@ -42,11 +44,12 @@ function getInitials(name: string): string {
 }
 
 // ── Sidebar Component ──
-function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: {
+function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose, onProfileOpen }: {
   collapsed: boolean;
   onToggle: () => void;
   mobileOpen: boolean;
   onMobileClose: () => void;
+  onProfileOpen: () => void;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -147,9 +150,13 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: {
         {/* Footer — User Info */}
         <div className="sidebar-footer">
           <div className="sidebar-user">
-            <div className="avatar avatar-md" style={{ background: 'var(--color-accent)', fontSize: '0.75rem' }}>
-              {user ? getInitials(user.name) : '?'}
-            </div>
+            <button
+              onClick={onProfileOpen}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, borderRadius: '50%' }}
+              title="Edit profile photo"
+            >
+              <Avatar name={user?.name || '?'} avatarUrl={user?.avatar_url} size="md" />
+            </button>
             {!collapsed && user && (
               <div className="sidebar-user-info" style={{ flex: 1 }}>
                 <div className="sidebar-user-name">{user.name}</div>
@@ -222,9 +229,7 @@ function TopBar({ onMobileMenuOpen }: { onMobileMenuOpen: () => void }) {
         </div>
       </div>
       <div className="topbar-right">
-        <div className="avatar avatar-md" style={{ display: 'flex' }}>
-          {user ? getInitials(user.name) : '?'}
-        </div>
+        {user && <Avatar name={user.name} avatarUrl={user.avatar_url} size="md" />}
       </div>
     </header>
   );
@@ -237,6 +242,7 @@ function ProtectedContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   React.useEffect(() => {
     if (loading) return;
@@ -280,6 +286,7 @@ function ProtectedContent({ children }: { children: React.ReactNode }) {
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
         mobileOpen={mobileOpen}
         onMobileClose={() => setMobileOpen(false)}
+        onProfileOpen={() => setProfileOpen(true)}
       />
       <main className="main-content" style={{ marginLeft: sidebarCollapsed ? 'var(--sidebar-collapsed)' : undefined }}>
         <TopBar onMobileMenuOpen={() => setMobileOpen(true)} />
@@ -287,6 +294,7 @@ function ProtectedContent({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </main>
+      {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} />}
     </div>
   );
 }

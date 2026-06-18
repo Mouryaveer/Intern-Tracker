@@ -10,10 +10,11 @@ import { authenticateUser, updateUser, getUserById, initDataLayer } from './data
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  pendingReset: boolean; // true when user authenticated but must reset first
+  pendingReset: boolean;
   login: (email: string, password: string) => { success: boolean; error?: string; mustReset?: boolean };
   logout: () => void;
   resetPassword: (newPassword: string) => boolean;
+  setUser: (user: User) => void;
   isAdmin: boolean;
   isLead: boolean;
   isIntern: boolean;
@@ -120,6 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     login,
     logout,
     resetPassword,
+    setUser,
     isAdmin: user?.role === 'admin',
     isLead: user?.role === 'lead',
     isIntern: user?.role === 'intern',

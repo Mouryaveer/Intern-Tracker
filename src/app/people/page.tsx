@@ -11,6 +11,7 @@ import {
   getStandupStreak,
 } from '@/lib/data-service';
 import { User, Team } from '@/lib/types';
+import Avatar from '@/components/Avatar';
 import {
   Users,
   Search,
@@ -50,12 +51,7 @@ function PersonCard({ person }: { person: User }) {
   return (
     <div className="card" style={{ padding: 'var(--spacing-xl)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-lg)' }}>
-        <div
-          className="avatar avatar-lg"
-          style={{ background: getAvatarColor(person.name) }}
-        >
-          {getInitials(person.name)}
-        </div>
+        <Avatar name={person.name} avatarUrl={person.avatar_url} size="lg" />
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 600, fontSize: 'var(--font-size-md)' }}>{person.name}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', marginTop: 4 }}>

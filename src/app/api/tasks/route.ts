@@ -3,6 +3,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/logger';
 import { handleApiError } from '@/lib/error-handler';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { validateTaskInput, sanitizeText } from '@/lib/validators';
 
 export async function GET(request: Request) {
@@ -46,8 +47,9 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    // Check role — only admin/lead can create tasks
-    const { data: profile } = await supabase
+    // Check role via admin client to avoid RLS recursion
+    const adminClient = createAdminClient();
+    const { data: profile } = await adminClient
       .from('profiles')
       .select('role, team_id')
       .eq('id', user.id)

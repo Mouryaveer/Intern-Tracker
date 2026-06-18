@@ -3,6 +3,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/logger';
 import { handleApiError } from '@/lib/error-handler';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { validateMeetingInput, sanitizeText } from '@/lib/validators';
 
 export async function GET(request: Request) {
@@ -50,12 +51,9 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    // Check role
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
+    // Check role via admin client to avoid RLS recursion
+    const { data: profile } = await createAdminClient()
+      .from('profiles').select('role').eq('id', user.id).single();
 
     if (!profile || profile.role === 'intern') {
       return Response.json({ error: 'Only admins and leads can create meetings' }, { status: 403 });

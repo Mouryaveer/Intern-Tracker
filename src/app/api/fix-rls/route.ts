@@ -1,4 +1,4 @@
-// GET /api/fix-rls — Fix circular RLS on profiles + teams table
+// GET /api/fix-rls — Drop all recursive RLS policies and replace with safe ones
 import { createAdminClient } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
@@ -7,61 +7,98 @@ export async function GET() {
   const admin = createAdminClient();
   const log: string[] = [];
 
-  const statements = [
-    // Drop old circular policies on profiles
-    `DROP POLICY IF EXISTS "admin_all_profiles" ON profiles`,
-    `DROP POLICY IF EXISTS "lead_read_profiles" ON profiles`,
-    `DROP POLICY IF EXISTS "lead_update_own_profile" ON profiles`,
-    `DROP POLICY IF EXISTS "intern_read_profiles" ON profiles`,
-    `DROP POLICY IF EXISTS "intern_update_own_profile" ON profiles`,
-    `DROP POLICY IF EXISTS "self_read_profile" ON profiles`,
-    `DROP POLICY IF EXISTS "self_update_profile" ON profiles`,
-    `DROP POLICY IF EXISTS "lead_read_team" ON profiles`,
-    `DROP POLICY IF EXISTS "lead_update_own" ON profiles`,
-    `DROP POLICY IF EXISTS "intern_read_own" ON profiles`,
-    `DROP POLICY IF EXISTS "intern_update_own" ON profiles`,
+  const { data: profiles } = await admin.from('profiles').select('id, email, role');
+  log.push(`Profiles found: ${profiles?.length ?? 0}`);
 
-    // Foundational: every logged-in user can read their OWN profile
-    `CREATE POLICY "self_read_profile" ON profiles FOR SELECT USING (auth.uid() = id)`,
-    // Every logged-in user can update their OWN profile
-    `CREATE POLICY "self_update_profile" ON profiles FOR UPDATE USING (auth.uid() = id)`,
-    // Admin: full access (uses sub-select to avoid circular dep)
-    `CREATE POLICY "admin_all_profiles" ON profiles FOR ALL USING (EXISTS (SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.role = 'admin'))`,
-    // Lead: read team profiles
-    `CREATE POLICY "lead_read_team" ON profiles FOR SELECT USING (team_id = (SELECT team_id FROM profiles WHERE id = auth.uid()))`,
+  const fixSQL = `
+-- ============================================================
+-- COMPLETE RLS FIX — Drop all recursive policies
+-- Run in: https://supabase.com/dashboard/project/xzxwizxrroyhqbqtczfm/sql/new
+-- ============================================================
 
-    // Fix teams table — any authenticated user can read teams
-    `DROP POLICY IF EXISTS "admin_all_teams" ON teams`,
-    `DROP POLICY IF EXISTS "lead_read_teams" ON teams`,
-    `DROP POLICY IF EXISTS "intern_read_teams" ON teams`,
-    `DROP POLICY IF EXISTS "auth_read_teams" ON teams`,
+-- Drop ALL existing policies on all tables
+DO $$ DECLARE r RECORD;
+BEGIN
+  FOR r IN SELECT schemaname, tablename, policyname FROM pg_policies WHERE schemaname = 'public'
+  LOOP
+    EXECUTE 'DROP POLICY IF EXISTS "' || r.policyname || '" ON ' || r.schemaname || '.' || r.tablename;
+  END LOOP;
+END $$;
 
-    `CREATE POLICY "auth_read_teams" ON teams FOR SELECT USING (auth.uid() IS NOT NULL)`,
-    `CREATE POLICY "admin_all_teams" ON teams FOR ALL USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'))`,
-  ];
+-- Drop recursive helper functions
+DROP FUNCTION IF EXISTS get_user_role() CASCADE;
+DROP FUNCTION IF EXISTS get_user_team_id() CASCADE;
+DROP FUNCTION IF EXISTS is_admin() CASCADE;
 
-  for (const sql of statements) {
-    const { error } = await admin.rpc('exec_sql', { query: sql }).maybeSingle();
-    if (error) {
-      // Try raw REST — fallback: just log it
-      log.push(`[WARN] ${sql.slice(0, 60)}... → ${error.message}`);
-    } else {
-      log.push(`[OK] ${sql.slice(0, 60)}...`);
-    }
-  }
+-- ============================================================
+-- PROFILES: simple auth.uid() = id, no recursion
+-- ============================================================
+CREATE POLICY "profiles_select" ON profiles FOR SELECT USING (auth.uid() IS NOT NULL);
+CREATE POLICY "profiles_update" ON profiles FOR UPDATE USING (auth.uid() = id);
+CREATE POLICY "profiles_insert" ON profiles FOR INSERT WITH CHECK (auth.uid() = id);
 
-  // Verify: can admin profile be fetched?
-  const { data: profiles, error: verifyErr } = await admin
-    .from('profiles')
-    .select('id, email, role, status');
+-- ============================================================
+-- TEAMS: all authenticated users can read
+-- ============================================================
+CREATE POLICY "teams_select" ON teams FOR SELECT USING (auth.uid() IS NOT NULL);
+CREATE POLICY "teams_insert" ON teams FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "teams_update" ON teams FOR UPDATE USING (auth.uid() IS NOT NULL);
+CREATE POLICY "teams_delete" ON teams FOR DELETE USING (auth.uid() IS NOT NULL);
+
+-- ============================================================
+-- TASKS: all authenticated users can read/write (app layer enforces roles)
+-- ============================================================
+CREATE POLICY "tasks_select" ON tasks FOR SELECT USING (auth.uid() IS NOT NULL);
+CREATE POLICY "tasks_insert" ON tasks FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "tasks_update" ON tasks FOR UPDATE USING (auth.uid() IS NOT NULL);
+CREATE POLICY "tasks_delete" ON tasks FOR DELETE USING (auth.uid() IS NOT NULL);
+
+-- ============================================================
+-- TASK ACTIVITY
+-- ============================================================
+CREATE POLICY "task_activity_select" ON task_activity FOR SELECT USING (auth.uid() IS NOT NULL);
+CREATE POLICY "task_activity_insert" ON task_activity FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+-- ============================================================
+-- STANDUPS
+-- ============================================================
+CREATE POLICY "standups_select" ON standups FOR SELECT USING (auth.uid() IS NOT NULL);
+CREATE POLICY "standups_insert" ON standups FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "standups_update" ON standups FOR UPDATE USING (auth.uid() IS NOT NULL);
+
+-- ============================================================
+-- MEETINGS
+-- ============================================================
+CREATE POLICY "meetings_select" ON meetings FOR SELECT USING (auth.uid() IS NOT NULL);
+CREATE POLICY "meetings_insert" ON meetings FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "meetings_update" ON meetings FOR UPDATE USING (auth.uid() IS NOT NULL);
+CREATE POLICY "meetings_delete" ON meetings FOR DELETE USING (auth.uid() IS NOT NULL);
+
+-- ============================================================
+-- ATTENDANCE
+-- ============================================================
+CREATE POLICY "attendance_select" ON attendance FOR SELECT USING (auth.uid() IS NOT NULL);
+CREATE POLICY "attendance_insert" ON attendance FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "attendance_update" ON attendance FOR UPDATE USING (auth.uid() IS NOT NULL);
+
+-- ============================================================
+-- WORK LOG
+-- ============================================================
+CREATE POLICY "work_log_select" ON work_log FOR SELECT USING (auth.uid() IS NOT NULL);
+CREATE POLICY "work_log_all" ON work_log FOR ALL USING (auth.uid() IS NOT NULL);
+
+-- ============================================================
+-- AUDIT LOG
+-- ============================================================
+CREATE POLICY "audit_log_select" ON audit_log FOR SELECT USING (auth.uid() IS NOT NULL);
+CREATE POLICY "audit_log_insert" ON audit_log FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+`;
 
   return Response.json({
-    success: !verifyErr,
     profiles_found: profiles?.length ?? 0,
-    profiles,
-    log,
-    note: 'If [WARN] messages appear, run the SQL manually in the Supabase SQL Editor.',
-    manual_sql: statements.join(';\n') + ';',
+    message: 'Copy fix_sql and run it in the Supabase SQL Editor',
     sql_editor_url: 'https://supabase.com/dashboard/project/xzxwizxrroyhqbqtczfm/sql/new',
+    fix_sql: fixSQL,
+    log,
   });
 }

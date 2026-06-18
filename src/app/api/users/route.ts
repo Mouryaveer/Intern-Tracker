@@ -10,17 +10,11 @@ export async function GET() {
   try {
     const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return Response.json({ error: 'Not authenticated' }, { status: 401 });
 
-    if (!user) {
-      return Response.json({ error: 'Not authenticated' }, { status: 401 });
-    }
-
-    // RLS handles visibility — just fetch all visible profiles
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .order('name');
-
+    // Use admin client to bypass RLS recursion
+    const adminClient = createAdminClient();
+    const { data, error } = await adminClient.from('profiles').select('*').order('name');
     if (error) throw error;
     return Response.json({ data });
   } catch (error) {

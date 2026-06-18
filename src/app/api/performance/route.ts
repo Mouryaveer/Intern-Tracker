@@ -2,6 +2,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/logger';
 import { handleApiError } from '@/lib/error-handler';
+import { createAdminClient } from '@/lib/supabase/admin';
 import type { PerformanceMetrics, Task, AttendanceStatus } from '@/lib/types';
 
 export async function GET(request: Request) {
@@ -22,16 +23,11 @@ export async function GET(request: Request) {
       return Response.json({ data: metrics });
     }
 
-    // Get profile to determine scope
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role, team_id')
-      .eq('id', user.id)
-      .single();
+    // Get profile via admin client to avoid RLS recursion
+    const { data: profile } = await createAdminClient()
+      .from('profiles').select('role, team_id').eq('id', user.id).single();
 
-    if (!profile) {
-      return Response.json({ error: 'Profile not found' }, { status: 404 });
-    }
+    if (!profile) return Response.json({ error: 'Profile not found' }, { status: 404 });
 
     // Get relevant users
     let usersQuery = supabase

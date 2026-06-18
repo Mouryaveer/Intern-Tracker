@@ -6,47 +6,84 @@ import { useAuth } from '@/lib/auth-context';
 import { updateUser } from '@/lib/data-service';
 import Avatar from './Avatar';
 
+// Compress + resize image to max 300x300, quality 0.8 → keeps base64 small
+function compressImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 300;
+        let { width, height } = img;
+        if (width > height) {
+          if (width > MAX) { height = Math.round((height * MAX) / width); width = MAX; }
+        } else {
+          if (height > MAX) { width = Math.round((width * MAX) / height); height = MAX; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('Canvas not supported')); return; }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.8));
+      };
+      img.onerror = reject;
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function ProfileModal({ onClose }: { onClose: () => void }) {
   const { user, setUser } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string>(user?.avatar_url || '');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   if (!user) return null;
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      setError('Please select an image file.');
-      return;
-    }
-    if (file.size > 2 * 1024 * 1024) {
-      setError('Image must be under 2MB.');
+      setError('Please select an image file (JPG, PNG, GIF).');
       return;
     }
 
     setError('');
-    const reader = new FileReader();
-    reader.onload = (ev) => setPreview(ev.target?.result as string);
-    reader.readAsDataURL(file);
+    setLoading(true);
+    try {
+      const compressed = await compressImage(file);
+      setPreview(compressed);
+    } catch {
+      setError('Could not process image. Please try a different file.');
+    } finally {
+      setLoading(false);
+      // Reset input so same file can be re-selected
+      e.target.value = '';
+    }
   };
 
   const handleSave = () => {
     setSaving(true);
-    const updated = updateUser(user.id, { avatar_url: preview });
-    if (updated) {
-      setUser(updated);
-      localStorage.setItem('current_user', JSON.stringify(updated));
+    try {
+      const updated = updateUser(user.id, { avatar_url: preview });
+      if (updated) {
+        setUser(updated);
+        localStorage.setItem('current_user', JSON.stringify(updated));
+      }
+    } catch {
+      setError('Failed to save. Storage may be full.');
+      setSaving(false);
+      return;
     }
     setSaving(false);
     onClose();
-  };
-
-  const handleRemove = () => {
-    setPreview('');
   };
 
   return (
@@ -76,23 +113,33 @@ export default function ProfileModal({ onClose }: { onClose: () => void }) {
             </button>
           </div>
 
+          {loading && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)' }}>
+              <span className="spinner" style={{ width: 16, height: 16 }} /> Processing image...
+            </div>
+          )}
+
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--spacing-sm)', width: '100%' }}>
             <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', textAlign: 'center' }}>
-              JPG, PNG or GIF · Max 2MB
+              Any image — auto-resized &amp; compressed for you
             </p>
 
-            <button className="btn btn-outline w-full" onClick={() => fileInputRef.current?.click()}>
-              <Upload size={16} /> Upload Photo
+            <button className="btn btn-outline w-full" onClick={() => fileInputRef.current?.click()} disabled={loading}>
+              <Upload size={16} /> {preview ? 'Change Photo' : 'Upload Photo'}
             </button>
 
             {preview && (
-              <button className="btn btn-ghost w-full" style={{ color: 'var(--color-blocked)' }} onClick={handleRemove}>
+              <button
+                className="btn btn-ghost w-full"
+                style={{ color: 'var(--color-blocked)' }}
+                onClick={() => setPreview('')}
+              >
                 <Trash2 size={16} /> Remove Photo
               </button>
             )}
 
             {error && (
-              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-blocked)' }}>{error}</p>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-blocked)', textAlign: 'center' }}>{error}</p>
             )}
           </div>
 
@@ -107,7 +154,7 @@ export default function ProfileModal({ onClose }: { onClose: () => void }) {
 
         <div className="modal-footer">
           <button className="btn btn-outline" onClick={onClose}>Cancel</button>
-          <button className="btn btn-accent" onClick={handleSave} disabled={saving}>
+          <button className="btn btn-accent" onClick={handleSave} disabled={saving || loading}>
             {saving ? 'Saving...' : 'Save Photo'}
           </button>
         </div>

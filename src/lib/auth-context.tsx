@@ -33,17 +33,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const supabase = createClient();
 
-  // Fetch user profile from profiles table
-  const fetchProfile = useCallback(async (userId: string): Promise<Profile | null> => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-
-    if (error || !data) return null;
-    return data as Profile;
-  }, [supabase]);
+  // Fetch user profile via server-side API route (bypasses RLS)
+  const fetchProfile = useCallback(async (_userId: string): Promise<Profile | null> => {
+    try {
+      const res = await fetch('/api/auth/me');
+      if (!res.ok) return null;
+      const { profile } = await res.json();
+      return profile as Profile ?? null;
+    } catch {
+      return null;
+    }
+  }, []);
 
   // Refresh profile from database
   const refreshProfile = useCallback(async () => {

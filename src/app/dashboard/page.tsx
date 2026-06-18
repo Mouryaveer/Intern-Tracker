@@ -11,7 +11,6 @@ import {
   getUpcomingMeetings,
   getStandupsByDate,
   getUsers,
-  getUsersByTeam,
   getRecentActivities,
   getTeams,
 } from '@/lib/data-service';
@@ -27,10 +26,6 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { subscribeToTable, unsubscribe } from '@/lib/realtime';
-
-function getInitials(name: string): string {
-  return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-}
 
 function formatRelativeTime(dateStr: string): string {
   const now = new Date();
@@ -120,7 +115,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (user) {
-      loadDashboardData();
+      void Promise.resolve().then(loadDashboardData);
 
       // Subscribe to realtime updates
       const tasksChannel = subscribeToTable({

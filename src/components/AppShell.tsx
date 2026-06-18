@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import Avatar from './Avatar';
@@ -15,7 +16,6 @@ import {
   Shield,
   LogOut,
   Menu,
-  X,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
@@ -38,10 +38,6 @@ const NAV_ITEMS = [
     { href: '/admin', label: 'Admin Panel', icon: Shield, adminOnly: true },
   ]},
 ];
-
-function getInitials(name: string): string {
-  return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-}
 
 // ── Sidebar Component ──
 function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose, onProfileOpen }: {
@@ -82,9 +78,11 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose, onProfileOpen
         {/* Header */}
         <div className="sidebar-header">
           <div className="sidebar-logo" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
-            <img 
+            <Image 
               src="/turn2law-icon.png" 
               alt="Turn2Law Icon" 
+              width={32}
+              height={32}
               style={{ width: '32px', height: '32px', objectFit: 'contain', display: 'block', borderRadius: 'var(--radius-sm)' }} 
             />
             {!collapsed && (

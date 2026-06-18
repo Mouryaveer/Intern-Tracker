@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { useRouter } from 'next/navigation';
 import {
   getUsers,
   getTeams,
@@ -33,6 +32,16 @@ function getInitials(name: string): string {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
+function getErrorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback;
+}
+
+function generateTempPassword(): string {
+  const bytes = new Uint8Array(4);
+  crypto.getRandomValues(bytes);
+  return `temp${Array.from(bytes, byte => byte.toString(36).padStart(2, '0')).join('').slice(0, 6)}`;
+}
+
 // ── Create/Edit User Modal ──
 interface UserFormModalProps {
   editUser?: Profile | null;
@@ -57,7 +66,12 @@ function UserFormModal({ editUser, allTeams, onClose, onSaved }: UserFormModalPr
 
     try {
       if (editUser) {
-        const body: any = { name, email, role, team_id: teamId || null };
+        const body: Partial<Pick<Profile, 'name' | 'email' | 'role' | 'team_id'>> & { password?: string } = {
+          name,
+          email,
+          role,
+          team_id: teamId || null,
+        };
         if (password) {
           body.password = password;
         }
@@ -90,8 +104,8 @@ function UserFormModal({ editUser, allTeams, onClose, onSaved }: UserFormModalPr
       }
       onSaved();
       onClose();
-    } catch (err: any) {
-      setError(err.message || 'An error occurred');
+    } catch (err) {
+      setError(getErrorMessage(err, 'An error occurred'));
     } finally {
       setLoading(false);
     }
@@ -194,8 +208,8 @@ function TeamFormModal({ editTeam, allUsers, onClose, onSaved }: TeamFormModalPr
       }
       onSaved();
       onClose();
-    } catch (err: any) {
-      setError(err.message || 'Failed to save team');
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to save team'));
     } finally {
       setLoading(false);
     }
@@ -246,8 +260,6 @@ function TeamFormModal({ editTeam, allUsers, onClose, onSaved }: TeamFormModalPr
 // ── Main Admin Page ──
 export default function AdminPage() {
   const { user, isAdmin } = useAuth();
-  const router = useRouter();
-  const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'teams'>('overview');
   
   const [allUsers, setAllUsers] = useState<Profile[]>([]);
@@ -283,9 +295,8 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
-    setMounted(true);
     if (isAdmin) {
-      loadData();
+      void Promise.resolve().then(loadData);
 
       // Subscribe to updates
       const profilesChannel = subscribeToTable({
@@ -314,7 +325,7 @@ export default function AdminPage() {
     }
   }, [isAdmin, loadData]);
 
-  if (!mounted || !user) return null;
+  if (!user) return null;
 
   // Redirect non-admins
   if (!isAdmin) {
@@ -357,14 +368,28 @@ export default function AdminPage() {
     if (confirm('Deactivate this user? They will lose access.')) {
       try {
         const res = await fetch(`/api/users/${userId}`, { method: 'DELETE' });
-        if (!res.ok) {
-          const errData = await res.json();
-          throw new Error(errData.error || 'Failed to deactivate user');
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Failed'); }
+        await loadData();
+      } catch (err) { alert(getErrorMessage(err, 'Error deactivating user')); }
+    }
+  };
+
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    if (confirm(`Permanently delete "${userName}"? This cannot be undone and will remove all their data.`)) {
+      try {
+        const res = await fetch(`/api/users/${userId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ _permanent_delete: true }),
+        });
+        // Use admin auth delete
+        const delRes = await fetch(`/api/users/${userId}/delete`, { method: 'DELETE' });
+        if (!delRes.ok) {
+          // Fallback: just deactivate
+          await fetch(`/api/users/${userId}`, { method: 'DELETE' });
         }
         await loadData();
-      } catch (err: any) {
-        alert(err.message || 'Error deactivating user');
-      }
+      } catch (err) { alert(getErrorMessage(err, 'Error deleting user')); }
     }
   };
 
@@ -380,13 +405,13 @@ export default function AdminPage() {
         throw new Error(errData.error || 'Failed to activate user');
       }
       await loadData();
-    } catch (err: any) {
-      alert(err.message || 'Error activating user');
+    } catch (err) {
+      alert(getErrorMessage(err, 'Error activating user'));
     }
   };
 
   const handleForcePasswordReset = async (userId: string, userName: string) => {
-    const tempPassword = 'temp' + Math.random().toString(36).substring(2, 8);
+    const tempPassword = generateTempPassword();
     if (confirm(`Force "${userName}" to reset their password on next login? A temporary password "${tempPassword}" will be set.`)) {
       try {
         const res = await fetch(`/api/users/${userId}`, {
@@ -400,8 +425,8 @@ export default function AdminPage() {
         }
         alert(`Temporary password set to: ${tempPassword}\n\nPlease share this with the user.`);
         await loadData();
-      } catch (err: any) {
-        alert(err.message || 'Error forcing password reset');
+      } catch (err) {
+        alert(getErrorMessage(err, 'Error forcing password reset'));
       }
     }
   };
@@ -411,8 +436,8 @@ export default function AdminPage() {
       try {
         await deleteTeam(teamId);
         await loadData();
-      } catch (err: any) {
-        alert(err.message || 'Failed to delete team');
+      } catch (err) {
+        alert(getErrorMessage(err, 'Failed to delete team'));
       }
     }
   };
@@ -611,6 +636,16 @@ export default function AdminPage() {
                                 <UserCheck size={14} />
                               </button>
                             )
+                          )}
+                          {u.id !== user.id && (
+                            <button
+                              className="btn btn-ghost btn-icon btn-sm"
+                              onClick={() => handleDeleteUser(u.id, u.name)}
+                              title="Permanently Delete"
+                              style={{ color: 'var(--color-blocked)' }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
                           )}
                         </div>
                       </td>

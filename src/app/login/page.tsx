@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { AlertCircle, Eye, EyeOff, Lock, Mail } from 'lucide-react';
@@ -34,7 +35,7 @@ export default function LoginPage() {
       }
 
       router.push('/dashboard');
-    } catch (err) {
+    } catch {
       setError('An unexpected error occurred. Please try again.');
       setLoading(false);
     }
@@ -45,9 +46,12 @@ export default function LoginPage() {
       {/* Brand Side */}
       <div className="login-brand">
         <div style={{ marginBottom: 'var(--spacing-2xl)', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-          <img 
+          <Image 
             src="/turn2law-logo.png" 
             alt="Turn2Law Logo" 
+            width={240}
+            height={63}
+            priority
             style={{ maxWidth: '240px', height: 'auto', display: 'block', marginBottom: 'var(--spacing-sm)' }} 
           />
           <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 800 }}>

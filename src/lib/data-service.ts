@@ -9,15 +9,12 @@ import type {
   Team,
   Task,
   TaskActivity,
-  TaskStatus,
-  TaskPriority,
   Standup,
   Meeting,
   Attendance,
   AttendanceStatus,
   PerformanceMetrics,
   TeamMetrics,
-  WorkLog,
 } from './types';
 
 // ── Helper: get supabase client ──

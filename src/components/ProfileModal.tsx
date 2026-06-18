@@ -78,8 +78,8 @@ export default function ProfileModal({ onClose }: { onClose: () => void }) {
         setUser(updated);
       }
       onClose();
-    } catch (err: any) {
-      setError(err.message || 'Failed to save profile photo.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save profile photo.');
     } finally {
       setSaving(false);
     }

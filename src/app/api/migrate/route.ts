@@ -4,19 +4,6 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
 
-async function runSQL(client: ReturnType<typeof createAdminClient>, sql: string, label: string) {
-  // Use rpc if available, otherwise try direct table operations
-  const { error } = await client.rpc('exec_sql', { query: sql }).single();
-  if (error && error.code !== 'PGRST202') {
-    return `[!!] ${label}: ${error.message}`;
-  }
-  if (error?.code === 'PGRST202') {
-    // exec_sql not available — return instruction
-    return `[NEED_SQL] ${label}`;
-  }
-  return `[OK] ${label}`;
-}
-
 export async function GET() {
   const admin = createAdminClient();
   const log: string[] = [];

@@ -14,7 +14,6 @@ import {
   MessageSquareText,
   CheckCircle2,
   XCircle,
-  Clock,
   Send,
   Edit3,
   ChevronDown,
@@ -198,7 +197,7 @@ function TeamStandupView() {
   }, [selectedDate]);
 
   useEffect(() => {
-    loadData();
+    void Promise.resolve().then(loadData);
 
     // Realtime subscriptions
     const standupsChannel = subscribeToTable({
@@ -336,18 +335,16 @@ function TeamStandupView() {
 // ── Main Standups Page ──
 export default function StandupsPage() {
   const { user, isIntern } = useAuth();
-  const [mounted, setMounted] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeTab, setActiveTab] = useState<'form' | 'team'>('team');
 
   useEffect(() => {
-    setMounted(true);
     if (isIntern) {
-      setActiveTab('form');
+      queueMicrotask(() => setActiveTab('form'));
     }
   }, [isIntern]);
 
-  if (!mounted || !user) return null;
+  if (!user) return null;
 
   return (
     <div className="animate-slide-up">

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { Lock, ShieldCheck, AlertCircle, Check, X } from 'lucide-react';
@@ -60,7 +61,7 @@ export default function ResetPasswordPage() {
         setError('Failed to reset password. Please try logging in again.');
         setLoading(false);
       }
-    } catch (err) {
+    } catch {
       setError('An unexpected error occurred. Please try again.');
       setLoading(false);
     }
@@ -70,9 +71,12 @@ export default function ResetPasswordPage() {
     <div className="login-page">
       <div className="login-brand">
         <div style={{ marginBottom: 'var(--spacing-2xl)', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-          <img 
+          <Image 
             src="/turn2law-logo.png" 
             alt="Turn2Law Logo" 
+            width={240}
+            height={63}
+            priority
             style={{ maxWidth: '240px', height: 'auto', display: 'block', marginBottom: 'var(--spacing-sm)' }} 
           />
           <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 800 }}>

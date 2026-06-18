@@ -16,7 +16,6 @@ import {
   Target,
   Flame,
   Trophy,
-  Users,
   CheckCircle2,
 } from 'lucide-react';
 import { useIsMobile } from '@/lib/useIsMobile';
@@ -297,7 +296,7 @@ export default function PerformancePage() {
   }, [user, isAdmin, isLead]);
 
   useEffect(() => {
-    loadData();
+    void Promise.resolve().then(loadData);
 
     // Subscribe to realtime updates
     const tasksChannel = subscribeToTable({

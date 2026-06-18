@@ -4,8 +4,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import {
   getTasks,
-  getTasksByTeam,
-  getTasksByAssignee,
   createTask,
   updateTask,
   deleteTask,
@@ -44,12 +42,13 @@ interface TaskCardProps {
   allUsers: Profile[];
   onClick: () => void;
   onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
   onAssign?: (e: React.MouseEvent) => void;
   isMobile?: boolean;
   canAssign?: boolean;
 }
 
-function TaskCard({ task, allUsers, onClick, onDragStart, onAssign, isMobile = false, canAssign = false }: TaskCardProps) {
+function TaskCard({ task, allUsers, onClick, onDragStart, onDragEnd, onAssign, isMobile = false, canAssign = false }: TaskCardProps) {
   const assignee = task.assignee_id ? allUsers.find(u => u.id === task.assignee_id) : null;
   const today = new Date().toISOString().split('T')[0];
   const isOverdue = task.due_date && new Date(task.due_date) < new Date(today) && task.status !== 'done';
@@ -88,6 +87,7 @@ function TaskCard({ task, allUsers, onClick, onDragStart, onAssign, isMobile = f
       className="task-card"
       draggable
       onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       onClick={onClick}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)', marginBottom: 'var(--spacing-sm)' }}>
@@ -406,6 +406,9 @@ function TaskDetailDrawer({ task, allUsers, onClose, onUpdated }: TaskDetailDraw
   
   const [activities, setActivities] = useState<TaskActivity[]>([]);
   const [loadingActivities, setLoadingActivities] = useState(true);
+  const [comments, setComments] = useState<{ id: string; user_id: string; content: string; created_at: string }[]>([]);
+  const [newComment, setNewComment] = useState('');
+  const [submittingComment, setSubmittingComment] = useState(false);
 
   const assignee = task.assignee_id ? allUsers.find(u => u.id === task.assignee_id) : null;
   const creator = allUsers.find(u => u.id === task.created_by);
@@ -431,7 +434,32 @@ function TaskDetailDrawer({ task, allUsers, onClose, onUpdated }: TaskDetailDraw
       }
     };
     fetchActivities();
+
+    // Fetch comments
+    fetch(`/api/tasks/comments?task_id=${task.id}`)
+      .then(r => r.json())
+      .then(r => setComments(r.data || []))
+      .catch(console.error);
   }, [task.id]);
+
+  const handleAddComment = async () => {
+    if (!newComment.trim()) return;
+    setSubmittingComment(true);
+    try {
+      const res = await fetch('/api/tasks/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: task.id, content: newComment }),
+      });
+      const data = await res.json();
+      if (data.data) setComments(prev => [...prev, data.data]);
+      setNewComment('');
+    } catch (err) {
+      console.error('Error posting comment:', err);
+    } finally {
+      setSubmittingComment(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!user) return;
@@ -608,8 +636,65 @@ function TaskDetailDrawer({ task, allUsers, onClose, onUpdated }: TaskDetailDraw
                 </div>
               )}
 
+              {/* Comments Section */}
+              <div style={{ marginTop: 'var(--spacing-xl)' }}>
+                <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, marginBottom: 'var(--spacing-base)', color: 'var(--color-text-secondary)' }}>
+                  Comments ({comments.length})
+                </h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-lg)' }}>
+                  {comments.length === 0 && (
+                    <p className="text-sm text-tertiary">No comments yet.</p>
+                  )}
+                  {comments.map(c => {
+                    const commenter = allUsers.find(u => u.id === c.user_id);
+                    return (
+                      <div key={c.id} style={{
+                        display: 'flex', gap: 'var(--spacing-sm)',
+                        padding: 'var(--spacing-md)',
+                        background: 'var(--color-surface)',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border-light)',
+                      }}>
+                        <div className="avatar avatar-sm" style={{ width: 28, height: 28, fontSize: '10px', flexShrink: 0 }}>
+                          {getInitials(commenter?.name || '?')}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', marginBottom: 4 }}>
+                            <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600 }}>{commenter?.name || 'Unknown'}</span>
+                            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>
+                              {new Date(c.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <p style={{ fontSize: 'var(--font-size-sm)', lineHeight: 1.5, margin: 0, whiteSpace: 'pre-wrap' }}>{c.content}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ display: 'flex', gap: 'var(--spacing-sm)', alignItems: 'flex-end' }}>
+                  <textarea
+                    className="form-textarea"
+                    placeholder="Add a comment..."
+                    value={newComment}
+                    onChange={e => setNewComment(e.target.value)}
+                    rows={2}
+                    style={{ flex: 1, resize: 'none' }}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleAddComment(); } }}
+                  />
+                  <button
+                    className="btn btn-accent btn-sm"
+                    onClick={() => void handleAddComment()}
+                    disabled={submittingComment || !newComment.trim()}
+                    style={{ flexShrink: 0 }}
+                  >
+                    {submittingComment ? '...' : 'Post'}
+                  </button>
+                </div>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', marginTop: 4 }}>Enter to post · Shift+Enter for new line</p>
+              </div>
+
               {/* Activity History */}
-              <div>
+              <div style={{ marginTop: 'var(--spacing-xl)' }}>
                 <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, marginBottom: 'var(--spacing-base)', color: 'var(--color-text-secondary)' }}>
                   Activity History
                 </h4>
@@ -705,7 +790,7 @@ export default function TaskBoardPage() {
   }, []);
 
   useEffect(() => {
-    loadData();
+    void Promise.resolve().then(loadData);
 
     // Setup realtime subscriptions
     const tasksChannel = subscribeToTable({
@@ -858,9 +943,10 @@ export default function TaskBoardPage() {
                         key={task.id}
                         task={task}
                         allUsers={allUsers}
-                        onClick={() => setSelectedTask(task)}
-                        onDragStart={() => {}}
-                        isMobile={true}
+                      onClick={() => setSelectedTask(task)}
+                      onDragStart={() => {}}
+                      onDragEnd={() => {}}
+                      isMobile={true}
                       />
                     ))}
                     {columnTasks.length === 0 && (
@@ -909,6 +995,7 @@ export default function TaskBoardPage() {
                       allUsers={allUsers}
                       onClick={() => setSelectedTask(task)}
                       onDragStart={(e) => handleDragStart(e, task.id)}
+                      onDragEnd={handleDragEnd}
                       onAssign={(e) => { e.stopPropagation(); setAssignTask(task); }}
                       canAssign={isAdmin || isLead}
                       isMobile={false}

@@ -35,7 +35,11 @@ export async function GET() {
   ];
   for (const t of teams) {
     const { error } = await admin.from('teams').upsert(t, { onConflict: 'id' });
-    error ? err(`team ${t.name}: ${error.message}`) : ok(`team: ${t.name}`);
+    if (error) {
+      err(`team ${t.name}: ${error.message}`);
+    } else {
+      ok(`team: ${t.name}`);
+    }
   }
 
   // ── 2. Auth users ──
@@ -74,7 +78,11 @@ export async function GET() {
       team_id: u.team, avatar_url: '', status: 'active',
       must_reset_password: u.must_reset,
     }, { onConflict: 'id' });
-    pe ? err(`profile ${u.name}: ${pe.message}`) : ok(`profile: ${u.name} (${u.role})`);
+    if (pe) {
+      err(`profile ${u.name}: ${pe.message}`);
+    } else {
+      ok(`profile: ${u.name} (${u.role})`);
+    }
   }
 
   // Assign team lead
@@ -129,7 +137,11 @@ export async function GET() {
   for (const s of standups) {
     if (!s.user_id) continue;
     const { error } = await admin.from('standups').upsert(s, { onConflict: 'user_id,date' });
-    error ? err(`standup ${s.date}: ${error.message}`) : ok(`standup: ${s.date}`);
+    if (error) {
+      err(`standup ${s.date}: ${error.message}`);
+    } else {
+      ok(`standup: ${s.date}`);
+    }
   }
 
   // ── 5. Meetings + Attendance ──

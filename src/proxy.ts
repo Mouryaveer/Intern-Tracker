@@ -1,11 +1,11 @@
 // ============================================================
-// Next.js Middleware — Auth Session Refresh
+// Next.js Proxy — Auth Session Refresh
 // ============================================================
 
 import { type NextRequest } from 'next/server';
 import { updateSession } from '@/lib/supabase/middleware';
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   return await updateSession(request);
 }
 

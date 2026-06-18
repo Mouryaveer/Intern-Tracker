@@ -43,6 +43,9 @@ function PersonCard({ person, team, tasks }: PersonCardProps) {
   const personTasks = tasks.filter(t => t.assignee_id === person.id);
   const completedTasks = personTasks.filter(t => t.status === 'done').length;
   const activeTasks = personTasks.filter(t => t.status !== 'done').length;
+  const joinedDate = person.created_at
+    ? new Date(person.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+    : 'Unknown';
 
   const roleBadgeClass = person.role === 'admin' ? 'badge-admin' : person.role === 'lead' ? 'badge-lead' : 'badge-intern';
 
@@ -70,7 +73,7 @@ function PersonCard({ person, team, tasks }: PersonCardProps) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', color: 'var(--color-text-secondary)' }}>
           <Calendar size={14} style={{ flexShrink: 0 }} />
-          <span>Joined {new Date(person.created_at || Date.now()).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
+          <span>Joined {joinedDate}</span>
         </div>
       </div>
 
@@ -176,7 +179,6 @@ function TeamCard({ team, members, lead }: TeamCardProps) {
 // ── Main People Page ──
 export default function PeoplePage() {
   const { user } = useAuth();
-  const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<'people' | 'teams'>('people');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterRole, setFilterRole] = useState('all');
@@ -205,8 +207,7 @@ export default function PeoplePage() {
   }, []);
 
   useEffect(() => {
-    setMounted(true);
-    loadData();
+    void Promise.resolve().then(loadData);
 
     // Setup realtime subscriptions
     const profilesChannel = subscribeToTable({
@@ -229,7 +230,7 @@ export default function PeoplePage() {
     };
   }, [loadData]);
 
-  if (!mounted || !user) return null;
+  if (!user) return null;
 
   if (loading) {
     return (

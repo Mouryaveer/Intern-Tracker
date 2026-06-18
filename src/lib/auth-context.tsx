@@ -5,7 +5,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Profile, UserRole } from './types';
+import { Profile } from './types';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 interface AuthContextType {
@@ -34,7 +34,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
 
   // Fetch user profile via server-side API route (bypasses RLS)
-  const fetchProfile = useCallback(async (_userId: string): Promise<Profile | null> => {
+  const fetchProfile = useCallback(async (): Promise<Profile | null> => {
     try {
       const res = await fetch('/api/auth/me');
       if (!res.ok) return null;
@@ -48,7 +48,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Refresh profile from database
   const refreshProfile = useCallback(async () => {
     if (!supabaseUser) return;
-    const profile = await fetchProfile(supabaseUser.id);
+    const profile = await fetchProfile();
     if (profile) {
       setUser(profile);
       if (profile.must_reset_password) {
@@ -65,7 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (authUser) {
           setSupabaseUser(authUser);
-          const profile = await fetchProfile(authUser.id);
+          const profile = await fetchProfile();
 
           if (profile) {
             if (profile.status !== 'active') {
@@ -95,7 +95,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       async (event, session) => {
         if (event === 'SIGNED_IN' && session?.user) {
           setSupabaseUser(session.user);
-          const profile = await fetchProfile(session.user.id);
+          const profile = await fetchProfile();
           if (profile) {
             if (profile.must_reset_password) {
               setPendingReset(true);
@@ -136,7 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (data.user) {
-        const profile = await fetchProfile(data.user.id);
+        const profile = await fetchProfile();
 
         if (!profile) {
           return { success: false, error: 'Account profile not found. Contact your admin.' };
@@ -199,7 +199,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Password was changed but flag wasn't cleared — still let them proceed
         }
 
-        const profile = await fetchProfile(supabaseUser.id);
+        const profile = await fetchProfile();
         if (profile) {
           setUser(profile);
         }

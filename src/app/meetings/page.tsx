@@ -18,7 +18,6 @@ import {
   X,
   Clock,
   Users,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
@@ -116,7 +115,7 @@ interface MeetingCardProps {
 function MeetingCard({ meeting, isPast, allUsers, allTeams }: MeetingCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
-  const { user, isAdmin, isLead } = useAuth();
+  const { isAdmin, isLead } = useAuth();
   const { isMobile } = useIsMobile();
   const date = new Date(meeting.scheduled_at);
   const team = meeting.team_id ? allTeams.find(t => t.id === meeting.team_id) : null;
@@ -137,7 +136,7 @@ function MeetingCard({ meeting, isPast, allUsers, allTeams }: MeetingCardProps) 
 
   useEffect(() => {
     if (expanded) {
-      fetchAttendance();
+      void Promise.resolve().then(fetchAttendance);
 
       // Subscribe to realtime attendance changes for this specific meeting
       const channel = subscribeToTable({
@@ -148,7 +147,7 @@ function MeetingCard({ meeting, isPast, allUsers, allTeams }: MeetingCardProps) 
 
       return () => unsubscribe(channel);
     }
-  }, [expanded, fetchAttendance]);
+  }, [expanded, fetchAttendance, meeting.id]);
 
   const handleMarkAttendance = async (userId: string, status: AttendanceStatus) => {
     try {
@@ -389,7 +388,6 @@ function MeetingCard({ meeting, isPast, allUsers, allTeams }: MeetingCardProps) 
 // ── Main Meetings Page ──
 export default function MeetingsPage() {
   const { user, isAdmin, isLead } = useAuth();
-  const [mounted, setMounted] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
   
@@ -419,8 +417,7 @@ export default function MeetingsPage() {
   }, []);
 
   useEffect(() => {
-    setMounted(true);
-    loadData();
+    void Promise.resolve().then(loadData);
 
     // Subscribe to meetings updates
     const meetingsChannel = subscribeToTable({
@@ -431,7 +428,7 @@ export default function MeetingsPage() {
     return () => unsubscribe(meetingsChannel);
   }, [loadData]);
 
-  if (!mounted || !user) return null;
+  if (!user) return null;
 
   if (loading) {
     return (

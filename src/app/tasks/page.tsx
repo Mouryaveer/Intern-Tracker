@@ -32,6 +32,7 @@ import {
   Trash2,
   Edit3,
   ArrowRight,
+  UserPlus,
 } from 'lucide-react';
 import { useIsMobile } from '@/lib/useIsMobile';
 
@@ -42,11 +43,13 @@ function getInitials(name: string): string {
 const COLUMNS: TaskStatus[] = ['todo', 'in_progress', 'review', 'done', 'blocked'];
 
 // ── Task Card Component ──
-function TaskCard({ task, onClick, onDragStart, isMobile = false }: {
+function TaskCard({ task, onClick, onDragStart, onAssign, isMobile = false, canAssign = false }: {
   task: Task;
   onClick: () => void;
   onDragStart?: (e: React.DragEvent) => void;
+  onAssign?: (e: React.MouseEvent) => void;
   isMobile?: boolean;
+  canAssign?: boolean;
 }) {
   const assignee = task.assignee_id ? getUserById(task.assignee_id) : null;
   const today = new Date().toISOString().split('T')[0];
@@ -117,13 +120,152 @@ function TaskCard({ task, onClick, onDragStart, isMobile = false }: {
           </div>
         )}
       </div>
+      {canAssign && (
+        <button
+          onClick={onAssign}
+          style={{
+            marginTop: 'var(--spacing-sm)',
+            display: 'flex', alignItems: 'center', gap: 4,
+            fontSize: '11px', color: 'var(--color-accent)',
+            background: 'var(--color-accent-bg)', border: 'none',
+            borderRadius: 'var(--radius-sm)', padding: '3px 8px',
+            cursor: 'pointer', fontWeight: 600, fontFamily: 'inherit',
+          }}
+        >
+          <UserPlus size={12} /> {assignee ? 'Reassign' : 'Assign'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Assign Task Modal ──
+function AssignTaskModal({ task, onClose, onAssigned }: { task: Task; onClose: () => void; onAssigned: () => void }) {
+  const { user, isAdmin, isLead } = useAuth();
+  const allUsers = getUsers().filter(u => u.status === 'active');
+  const teams = getTeams();
+
+  // Role hierarchy: admin assigns to leads, lead assigns to interns in their team
+  const assignableUsers = isAdmin
+    ? allUsers.filter(u => u.role === 'lead')
+    : isLead
+      ? allUsers.filter(u => u.role === 'intern' && u.team_id === user?.team_id)
+      : [];
+
+  const currentAssignee = task.assignee_id ? getUserById(task.assignee_id) : null;
+
+  const handleAssign = (userId: string) => {
+    if (!user) return;
+    updateTask(task.id, { assignee_id: userId || null }, user.id);
+    onAssigned();
+    onClose();
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <h3 className="modal-title">Assign Task</h3>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: 2 }}>
+              {task.title}
+            </p>
+          </div>
+          <button className="btn btn-ghost btn-icon" onClick={onClose}><X size={20} /></button>
+        </div>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-lg)' }}>
+          {/* Current assignee */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)',
+            padding: 'var(--spacing-sm) var(--spacing-md)',
+            background: 'var(--color-bg)', borderRadius: 'var(--radius-md)',
+            fontSize: 'var(--font-size-sm)',
+          }}>
+            <span style={{ color: 'var(--color-text-secondary)' }}>Currently assigned to:</span>
+            <strong>{currentAssignee?.name || 'Nobody'}</strong>
+          </div>
+
+          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+            {isAdmin ? 'Assign to a Lead:' : 'Assign to an Intern in your team:'}
+          </p>
+
+          {/* People list */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)', maxHeight: 320, overflowY: 'auto' }}>
+            {/* Unassign option */}
+            <button
+              onClick={() => handleAssign('')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)',
+                padding: 'var(--spacing-md)', borderRadius: 'var(--radius-md)',
+                border: `2px solid ${!task.assignee_id ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                background: !task.assignee_id ? 'var(--color-accent-bg)' : 'transparent',
+                cursor: 'pointer', textAlign: 'left', width: '100%', fontFamily: 'inherit',
+              }}
+            >
+              <div style={{
+                width: 36, height: 36, borderRadius: '50%',
+                background: 'var(--color-border)', display: 'flex',
+                alignItems: 'center', justifyContent: 'center',
+                color: 'var(--color-text-secondary)', flexShrink: 0,
+              }}>
+                <UserIcon size={16} />
+              </div>
+              <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }}>Unassigned</span>
+            </button>
+
+            {assignableUsers.length === 0 && (
+              <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)', textAlign: 'center', padding: 'var(--spacing-lg)' }}>
+                No {isAdmin ? 'leads' : 'interns'} available to assign.
+              </p>
+            )}
+
+            {assignableUsers.map(u => {
+              const isSelected = task.assignee_id === u.id;
+              return (
+                <button
+                  key={u.id}
+                  onClick={() => handleAssign(u.id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)',
+                    padding: 'var(--spacing-md)', borderRadius: 'var(--radius-md)',
+                    border: `2px solid ${isSelected ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                    background: isSelected ? 'var(--color-accent-bg)' : 'transparent',
+                    cursor: 'pointer', textAlign: 'left', width: '100%', fontFamily: 'inherit',
+                    transition: 'all 150ms ease',
+                  }}
+                  onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--color-surface-hover)'; }}
+                  onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <div style={{
+                    width: 36, height: 36, borderRadius: '50%',
+                    background: 'var(--color-primary)', display: 'flex',
+                    alignItems: 'center', justifyContent: 'center',
+                    color: '#fff', fontWeight: 700, fontSize: '12px', flexShrink: 0,
+                  }}>
+                    {getInitials(u.name)}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600 }}>{u.name}</div>
+                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                      {u.role}{u.team_id ? ` · ${teams.find(t => t.id === u.team_id)?.name || ''}` : ''}
+                    </div>
+                  </div>
+                  {isSelected && (
+                    <CheckCircle2 size={18} style={{ color: 'var(--color-accent)', flexShrink: 0 }} />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
 // ── Create Task Modal ──
 function CreateTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const { user } = useAuth();
+  const { user, isAdmin, isLead } = useAuth();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [acceptanceCriteria, setAcceptanceCriteria] = useState('');
@@ -132,8 +274,15 @@ function CreateTaskModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const [teamId, setTeamId] = useState(user?.team_id || '');
   const [dueDate, setDueDate] = useState('');
 
-  const users = getUsers().filter(u => u.status === 'active');
+  const allUsers = getUsers().filter(u => u.status === 'active');
   const teams = getTeams();
+
+  // Role hierarchy
+  const assignableUsers = isAdmin
+    ? allUsers.filter(u => u.role === 'lead')
+    : isLead
+      ? allUsers.filter(u => u.role === 'intern' && u.team_id === user?.team_id)
+      : [];
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -202,7 +351,7 @@ function CreateTaskModal({ onClose, onCreated }: { onClose: () => void; onCreate
                 <label className="form-label">Assignee</label>
                 <select className="form-select" value={assigneeId} onChange={e => setAssigneeId(e.target.value)}>
                   <option value="">Unassigned</option>
-                  {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  {assignableUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
                 </select>
               </div>
             </div>
@@ -219,7 +368,7 @@ function CreateTaskModal({ onClose, onCreated }: { onClose: () => void; onCreate
 
 // ── Task Detail Drawer ──
 function TaskDetailDrawer({ task, onClose, onUpdated }: { task: Task; onClose: () => void; onUpdated: () => void }) {
-  const { user } = useAuth();
+  const { user, isAdmin, isLead } = useAuth();
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title);
   const [editDescription, setEditDescription] = useState(task.description);
@@ -232,7 +381,14 @@ function TaskDetailDrawer({ task, onClose, onUpdated }: { task: Task; onClose: (
   const activities = getActivitiesByTask(task.id);
   const assignee = task.assignee_id ? getUserById(task.assignee_id) : null;
   const creator = getUserById(task.created_by);
-  const users = getUsers().filter(u => u.status === 'active');
+  const allUsers = getUsers().filter(u => u.status === 'active');
+
+  // Role hierarchy for assignee dropdown
+  const assignableUsers = isAdmin
+    ? allUsers.filter(u => u.role === 'lead')
+    : isLead
+      ? allUsers.filter(u => u.role === 'intern' && u.team_id === user?.team_id)
+      : [];
 
   const handleSave = () => {
     if (!user) return;
@@ -326,7 +482,7 @@ function TaskDetailDrawer({ task, onClose, onUpdated }: { task: Task; onClose: (
                 <label className="form-label">Assignee</label>
                 <select className="form-select" value={editAssignee} onChange={e => setEditAssignee(e.target.value)}>
                   <option value="">Unassigned</option>
-                  {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  {assignableUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
                 </select>
               </div>
               <div style={{ display: 'flex', gap: 'var(--spacing-sm)', justifyContent: 'flex-end' }}>
@@ -458,6 +614,7 @@ export default function TaskBoardPage() {
   const [mounted, setMounted] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [assignTask, setAssignTask] = useState<Task | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<TaskStatus | null>(null);
   const [filterTeam, setFilterTeam] = useState<string>('all');
   const [filterAssignee, setFilterAssignee] = useState<string>('all');
@@ -650,6 +807,8 @@ export default function TaskBoardPage() {
                       task={task}
                       onClick={() => setSelectedTask(task)}
                       onDragStart={(e) => handleDragStart(e, task.id)}
+                      onAssign={(e) => { e.stopPropagation(); setAssignTask(task); }}
+                      canAssign={isAdmin || isLead}
                       isMobile={false}
                     />
                   ))}
@@ -672,6 +831,15 @@ export default function TaskBoardPage() {
         </div>
       )}
 
+
+      {/* Assign Task Modal */}
+      {assignTask && (
+        <AssignTaskModal
+          task={assignTask}
+          onClose={() => setAssignTask(null)}
+          onAssigned={loadTasks}
+        />
+      )}
 
       {/* Create Task Modal */}
       {showCreateModal && (

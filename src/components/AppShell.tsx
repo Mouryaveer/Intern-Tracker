@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { AuthProvider, useAuth } from '@/lib/auth-context';
+import { useAuth } from '@/lib/auth-context';
 import Avatar from './Avatar';
 import ProfileModal from './ProfileModal';
 import {
@@ -303,11 +303,9 @@ function ProtectedContent({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ── App Shell (wraps with AuthProvider) ──
+// ── App Shell ──
 export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
-    <AuthProvider>
-      <ProtectedContent>{children}</ProtectedContent>
-    </AuthProvider>
+    <ProtectedContent>{children}</ProtectedContent>
   );
 }

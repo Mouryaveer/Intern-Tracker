@@ -38,8 +38,9 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    // Check admin role
-    const { data: profile } = await supabase
+    // Check admin role using admin client to bypass RLS
+    const adminClient = createAdminClient();
+    const { data: profile } = await adminClient
       .from('profiles')
       .select('role')
       .eq('id', currentUser.id)
@@ -59,7 +60,6 @@ export async function POST(request: Request) {
     const tempPassword = password || 'temp' + Math.random().toString(36).substring(2, 8);
 
     // Create auth user via admin client (bypasses email confirmation)
-    const adminClient = createAdminClient();
     const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
       email,
       password: tempPassword,

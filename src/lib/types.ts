@@ -1,28 +1,32 @@
 // ============================================================
 // Turn2Law Intern Tracker — Type Definitions
+// Updated for Supabase (no password field in profiles)
 // ============================================================
 
 export type UserRole = 'admin' | 'lead' | 'intern';
 export type UserStatus = 'active' | 'inactive';
 
-export interface User {
+export interface Profile {
   id: string;
   name: string;
   email: string;
-  password: string; // In production, this would be hashed
   role: UserRole;
   team_id: string | null;
   avatar_url: string;
-  join_date: string;
   status: UserStatus;
   must_reset_password: boolean;
+  created_at: string;
 }
+
+// Alias for backward compatibility
+export type User = Profile;
 
 export interface Team {
   id: string;
   name: string;
   lead_id: string | null;
   description: string;
+  created_at?: string;
 }
 
 export type TaskStatus = 'todo' | 'in_progress' | 'review' | 'done' | 'blocked';
@@ -38,7 +42,7 @@ export interface Task {
   created_by: string;
   status: TaskStatus;
   priority: TaskPriority;
-  due_date: string;
+  due_date: string | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -72,6 +76,7 @@ export interface Meeting {
   agenda: string;
   notes_url: string;
   created_by: string;
+  created_at?: string;
 }
 
 export type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
@@ -90,6 +95,16 @@ export interface WorkLog {
   task_id: string | null;
   description: string;
   link: string;
+  created_at: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  user_id: string | null;
+  action: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  metadata: Record<string, unknown>;
   created_at: string;
 }
 
@@ -116,6 +131,20 @@ export interface TeamMetrics {
   active_members: number;
   standup_compliance: number;
 }
+
+// ============================================================
+// API Response Types
+// ============================================================
+
+export interface ApiResponse<T = unknown> {
+  data?: T;
+  error?: string;
+  message?: string;
+}
+
+// ============================================================
+// UI Config Constants
+// ============================================================
 
 // Column config for Kanban
 export const TASK_STATUS_CONFIG: Record<TaskStatus, { label: string; color: string; bgColor: string }> = {

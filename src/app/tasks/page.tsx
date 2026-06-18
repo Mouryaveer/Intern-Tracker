@@ -6,25 +6,20 @@ import {
   getTasks,
   getTasksByTeam,
   getTasksByAssignee,
-  moveTask,
   createTask,
   updateTask,
   deleteTask,
-  getActivitiesByTask,
-  logTaskActivity,
-  getUserById,
   getUsers,
   getTeams,
+  getTaskActivity,
 } from '@/lib/data-service';
-import { Task, TaskStatus, TaskPriority, TaskActivity, TASK_STATUS_CONFIG } from '@/lib/types';
+import { Task, TaskStatus, TaskPriority, TaskActivity, TASK_STATUS_CONFIG, Profile, Team } from '@/lib/types';
 import {
   Plus,
   X,
-  GripVertical,
   Calendar,
   User as UserIcon,
   AlertTriangle,
-  Clock,
   CheckCircle2,
   ChevronRight,
   ChevronDown,
@@ -35,6 +30,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { useIsMobile } from '@/lib/useIsMobile';
+import { subscribeToTable, unsubscribe } from '@/lib/realtime';
 
 function getInitials(name: string): string {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -43,15 +39,18 @@ function getInitials(name: string): string {
 const COLUMNS: TaskStatus[] = ['todo', 'in_progress', 'review', 'done', 'blocked'];
 
 // ── Task Card Component ──
-function TaskCard({ task, onClick, onDragStart, onAssign, isMobile = false, canAssign = false }: {
+interface TaskCardProps {
   task: Task;
+  allUsers: Profile[];
   onClick: () => void;
   onDragStart?: (e: React.DragEvent) => void;
   onAssign?: (e: React.MouseEvent) => void;
   isMobile?: boolean;
   canAssign?: boolean;
-}) {
-  const assignee = task.assignee_id ? getUserById(task.assignee_id) : null;
+}
+
+function TaskCard({ task, allUsers, onClick, onDragStart, onAssign, isMobile = false, canAssign = false }: TaskCardProps) {
+  const assignee = task.assignee_id ? allUsers.find(u => u.id === task.assignee_id) : null;
   const today = new Date().toISOString().split('T')[0];
   const isOverdue = task.due_date && new Date(task.due_date) < new Date(today) && task.status !== 'done';
 
@@ -140,25 +139,37 @@ function TaskCard({ task, onClick, onDragStart, onAssign, isMobile = false, canA
 }
 
 // ── Assign Task Modal ──
-function AssignTaskModal({ task, onClose, onAssigned }: { task: Task; onClose: () => void; onAssigned: () => void }) {
-  const { user, isAdmin, isLead } = useAuth();
-  const allUsers = getUsers().filter(u => u.status === 'active');
-  const teams = getTeams();
+interface AssignTaskModalProps {
+  task: Task;
+  allUsers: Profile[];
+  allTeams: Team[];
+  onClose: () => void;
+  onAssigned: () => void;
+}
 
-  // Role hierarchy: admin assigns to leads, lead assigns to interns in their team
+function AssignTaskModal({ task, allUsers, allTeams, onClose, onAssigned }: AssignTaskModalProps) {
+  const { user, isAdmin, isLead } = useAuth();
+
+  const activeUsers = allUsers.filter(u => u.status === 'active');
+
+  // Role hierarchy
   const assignableUsers = isAdmin
-    ? allUsers.filter(u => u.role === 'lead')
+    ? activeUsers.filter(u => u.role === 'lead')
     : isLead
-      ? allUsers.filter(u => u.role === 'intern' && u.team_id === user?.team_id)
+      ? activeUsers.filter(u => u.role === 'intern' && u.team_id === user?.team_id)
       : [];
 
-  const currentAssignee = task.assignee_id ? getUserById(task.assignee_id) : null;
+  const currentAssignee = task.assignee_id ? allUsers.find(u => u.id === task.assignee_id) : null;
 
-  const handleAssign = (userId: string) => {
+  const handleAssign = async (userId: string) => {
     if (!user) return;
-    updateTask(task.id, { assignee_id: userId || null }, user.id);
-    onAssigned();
-    onClose();
+    try {
+      await updateTask(task.id, { assignee_id: userId || null });
+      onAssigned();
+      onClose();
+    } catch (err) {
+      console.error('Error assigning task:', err);
+    }
   };
 
   return (
@@ -174,7 +185,6 @@ function AssignTaskModal({ task, onClose, onAssigned }: { task: Task; onClose: (
           <button className="btn btn-ghost btn-icon" onClick={onClose}><X size={20} /></button>
         </div>
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-lg)' }}>
-          {/* Current assignee */}
           <div style={{
             display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)',
             padding: 'var(--spacing-sm) var(--spacing-md)',
@@ -189,7 +199,6 @@ function AssignTaskModal({ task, onClose, onAssigned }: { task: Task; onClose: (
             {isAdmin ? 'Assign to a Lead:' : 'Assign to an Intern in your team:'}
           </p>
 
-          {/* People list */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)', maxHeight: 320, overflowY: 'auto' }}>
             {/* Unassign option */}
             <button
@@ -247,7 +256,7 @@ function AssignTaskModal({ task, onClose, onAssigned }: { task: Task; onClose: (
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600 }}>{u.name}</div>
                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                      {u.role}{u.team_id ? ` · ${teams.find(t => t.id === u.team_id)?.name || ''}` : ''}
+                      {u.role}{u.team_id ? ` · ${allTeams.find(t => t.id === u.team_id)?.name || ''}` : ''}
                     </div>
                   </div>
                   {isSelected && (
@@ -264,7 +273,14 @@ function AssignTaskModal({ task, onClose, onAssigned }: { task: Task; onClose: (
 }
 
 // ── Create Task Modal ──
-function CreateTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+interface CreateTaskModalProps {
+  allUsers: Profile[];
+  allTeams: Team[];
+  onClose: () => void;
+  onCreated: () => void;
+}
+
+function CreateTaskModal({ allUsers, allTeams, onClose, onCreated }: CreateTaskModalProps) {
   const { user, isAdmin, isLead } = useAuth();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -274,34 +290,37 @@ function CreateTaskModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const [teamId, setTeamId] = useState(user?.team_id || '');
   const [dueDate, setDueDate] = useState('');
 
-  const allUsers = getUsers().filter(u => u.status === 'active');
-  const teams = getTeams();
+  const activeUsers = allUsers.filter(u => u.status === 'active');
 
   // Role hierarchy
   const assignableUsers = isAdmin
-    ? allUsers.filter(u => u.role === 'lead')
+    ? activeUsers.filter(u => u.role === 'lead')
     : isLead
-      ? allUsers.filter(u => u.role === 'intern' && u.team_id === user?.team_id)
+      ? activeUsers.filter(u => u.role === 'intern' && u.team_id === user?.team_id)
       : [];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
 
-    createTask({
-      title,
-      description,
-      acceptance_criteria: acceptanceCriteria,
-      priority,
-      assignee_id: assigneeId || null,
-      team_id: teamId || null,
-      created_by: user.id,
-      status: 'todo',
-      due_date: dueDate,
-    }, user.id);
+    try {
+      await createTask({
+        title,
+        description,
+        acceptance_criteria: acceptanceCriteria,
+        priority,
+        assignee_id: assigneeId || null,
+        team_id: teamId || null,
+        created_by: user.id,
+        status: 'todo',
+        due_date: dueDate || null,
+      });
 
-    onCreated();
-    onClose();
+      onCreated();
+      onClose();
+    } catch (err) {
+      console.error('Error creating task:', err);
+    }
   };
 
   return (
@@ -344,7 +363,7 @@ function CreateTaskModal({ onClose, onCreated }: { onClose: () => void; onCreate
                 <label className="form-label">Team</label>
                 <select className="form-select" value={teamId} onChange={e => setTeamId(e.target.value)}>
                   <option value="">No team</option>
-                  {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  {allTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
               <div className="form-group">
@@ -367,7 +386,14 @@ function CreateTaskModal({ onClose, onCreated }: { onClose: () => void; onCreate
 }
 
 // ── Task Detail Drawer ──
-function TaskDetailDrawer({ task, onClose, onUpdated }: { task: Task; onClose: () => void; onUpdated: () => void }) {
+interface TaskDetailDrawerProps {
+  task: Task;
+  allUsers: Profile[];
+  onClose: () => void;
+  onUpdated: () => void;
+}
+
+function TaskDetailDrawer({ task, allUsers, onClose, onUpdated }: TaskDetailDrawerProps) {
   const { user, isAdmin, isLead } = useAuth();
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title);
@@ -375,41 +401,66 @@ function TaskDetailDrawer({ task, onClose, onUpdated }: { task: Task; onClose: (
   const [editCriteria, setEditCriteria] = useState(task.acceptance_criteria);
   const [editPriority, setEditPriority] = useState(task.priority);
   const [editAssignee, setEditAssignee] = useState(task.assignee_id || '');
-  const [editDueDate, setEditDueDate] = useState(task.due_date);
+  const [editDueDate, setEditDueDate] = useState(task.due_date || '');
   const [editStatus, setEditStatus] = useState(task.status);
+  
+  const [activities, setActivities] = useState<TaskActivity[]>([]);
+  const [loadingActivities, setLoadingActivities] = useState(true);
 
-  const activities = getActivitiesByTask(task.id);
-  const assignee = task.assignee_id ? getUserById(task.assignee_id) : null;
-  const creator = getUserById(task.created_by);
-  const allUsers = getUsers().filter(u => u.status === 'active');
+  const assignee = task.assignee_id ? allUsers.find(u => u.id === task.assignee_id) : null;
+  const creator = allUsers.find(u => u.id === task.created_by);
+  const activeUsers = allUsers.filter(u => u.status === 'active');
 
   // Role hierarchy for assignee dropdown
   const assignableUsers = isAdmin
-    ? allUsers.filter(u => u.role === 'lead')
+    ? activeUsers.filter(u => u.role === 'lead')
     : isLead
-      ? allUsers.filter(u => u.role === 'intern' && u.team_id === user?.team_id)
+      ? activeUsers.filter(u => u.role === 'intern' && u.team_id === user?.team_id)
       : [];
 
-  const handleSave = () => {
+  useEffect(() => {
+    const fetchActivities = async () => {
+      try {
+        setLoadingActivities(true);
+        const data = await getTaskActivity(task.id);
+        setActivities(data);
+      } catch (err) {
+        console.error('Error fetching activities:', err);
+      } finally {
+        setLoadingActivities(false);
+      }
+    };
+    fetchActivities();
+  }, [task.id]);
+
+  const handleSave = async () => {
     if (!user) return;
-    updateTask(task.id, {
-      title: editTitle,
-      description: editDescription,
-      acceptance_criteria: editCriteria,
-      priority: editPriority,
-      assignee_id: editAssignee || null,
-      due_date: editDueDate,
-      status: editStatus,
-    }, user.id);
-    setEditing(false);
-    onUpdated();
+    try {
+      await updateTask(task.id, {
+        title: editTitle,
+        description: editDescription,
+        acceptance_criteria: editCriteria,
+        priority: editPriority,
+        assignee_id: editAssignee || null,
+        due_date: editDueDate || null,
+        status: editStatus,
+      });
+      setEditing(false);
+      onUpdated();
+    } catch (err) {
+      console.error('Error updating task:', err);
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (confirm('Are you sure you want to delete this task?')) {
-      deleteTask(task.id);
-      onClose();
-      onUpdated();
+      try {
+        await deleteTask(task.id);
+        onClose();
+        onUpdated();
+      } catch (err) {
+        console.error('Error deleting task:', err);
+      }
     }
   };
 
@@ -429,12 +480,16 @@ function TaskDetailDrawer({ task, onClose, onUpdated }: { task: Task; onClose: (
             </span>
           </div>
           <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
-            <button className="btn btn-ghost btn-icon" onClick={() => setEditing(!editing)} title="Edit">
-              <Edit3 size={16} />
-            </button>
-            <button className="btn btn-ghost btn-icon" onClick={handleDelete} title="Delete" style={{ color: 'var(--color-blocked)' }}>
-              <Trash2 size={16} />
-            </button>
+            {(isAdmin || isLead) && (
+              <>
+                <button className="btn btn-ghost btn-icon" onClick={() => setEditing(!editing)} title="Edit">
+                  <Edit3 size={16} />
+                </button>
+                <button className="btn btn-ghost btn-icon" onClick={handleDelete} title="Delete" style={{ color: 'var(--color-blocked)' }}>
+                  <Trash2 size={16} />
+                </button>
+              </>
+            )}
             <button className="btn btn-ghost btn-icon" onClick={onClose}>
               <X size={20} />
             </button>
@@ -558,12 +613,14 @@ function TaskDetailDrawer({ task, onClose, onUpdated }: { task: Task; onClose: (
                 <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, marginBottom: 'var(--spacing-base)', color: 'var(--color-text-secondary)' }}>
                   Activity History
                 </h4>
-                {activities.length === 0 ? (
+                {loadingActivities ? (
+                  <p className="text-sm text-tertiary">Loading activity history...</p>
+                ) : activities.length === 0 ? (
                   <p className="text-sm text-tertiary">No activity yet</p>
                 ) : (
                   <div className="timeline">
                     {activities.map((activity) => {
-                      const actUser = getUserById(activity.user_id);
+                      const actUser = allUsers.find(u => u.id === activity.user_id);
                       return (
                         <div className="timeline-item" key={activity.id}>
                           <div className="timeline-dot" />
@@ -611,7 +668,10 @@ function TaskDetailDrawer({ task, onClose, onUpdated }: { task: Task; onClose: (
 export default function TaskBoardPage() {
   const { user, isAdmin, isLead } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [mounted, setMounted] = useState(false);
+  const [allUsers, setAllUsers] = useState<Profile[]>([]);
+  const [allTeams, setAllTeams] = useState<Team[]>([]);
+  const [loading, setLoading] = useState(true);
+  
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [assignTask, setAssignTask] = useState<Task | null>(null);
@@ -627,20 +687,56 @@ export default function TaskBoardPage() {
     blocked: false,
   });
 
-  const teams = typeof window !== 'undefined' ? getTeams() : [];
-  const users = typeof window !== 'undefined' ? getUsers().filter(u => u.status === 'active') : [];
-
-  const loadTasks = useCallback(() => {
-    const allTasks = getTasks();
-    setTasks(allTasks);
+  const loadData = useCallback(async () => {
+    try {
+      const [fetchedTasks, fetchedUsers, fetchedTeams] = await Promise.all([
+        getTasks(),
+        getUsers(),
+        getTeams(),
+      ]);
+      setTasks(fetchedTasks);
+      setAllUsers(fetchedUsers);
+      setAllTeams(fetchedTeams);
+    } catch (err) {
+      console.error('Error loading tasks board data:', err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    setMounted(true);
-    loadTasks();
-  }, [loadTasks]);
+    loadData();
 
-  if (!mounted || !user) return null;
+    // Setup realtime subscriptions
+    const tasksChannel = subscribeToTable({
+      table: 'tasks',
+      callback: () => loadData(),
+    });
+    const profilesChannel = subscribeToTable({
+      table: 'profiles',
+      callback: () => loadData(),
+    });
+
+    return () => {
+      unsubscribe(tasksChannel);
+      unsubscribe(profilesChannel);
+    };
+  }, [loadData]);
+
+  if (!user) return null;
+
+  if (loading) {
+    return (
+      <div className="animate-slide-up" style={{ padding: 'var(--spacing-xl) 0' }}>
+        <div className="skeleton-pulse" style={{ height: 40, width: 300, background: 'var(--color-surface)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--spacing-xl)' }} />
+        <div className="kanban-board">
+          {COLUMNS.map((col) => (
+            <div key={col} className="kanban-column skeleton-pulse" style={{ height: 500, border: 'none', background: 'var(--color-surface)' }} />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   // Filter tasks
   let filteredTasks = tasks;
@@ -670,12 +766,16 @@ export default function TaskBoardPage() {
     setDragOverColumn(status);
   };
 
-  const handleDrop = (e: React.DragEvent, newStatus: TaskStatus) => {
+  const handleDrop = async (e: React.DragEvent, newStatus: TaskStatus) => {
     e.preventDefault();
     const taskId = e.dataTransfer.getData('taskId');
-    if (taskId && user) {
-      moveTask(taskId, newStatus, user.id);
-      loadTasks();
+    if (taskId) {
+      try {
+        await updateTask(taskId, { status: newStatus });
+        await loadData();
+      } catch (err) {
+        console.error('Error moving task:', err);
+      }
     }
     setDragOverColumn(null);
   };
@@ -688,11 +788,11 @@ export default function TaskBoardPage() {
           <Filter size={16} style={{ color: 'var(--color-text-secondary)' }} />
           <select className="form-select" style={{ width: 'auto', minWidth: 140 }} value={filterTeam} onChange={e => setFilterTeam(e.target.value)}>
             <option value="all">All Teams</option>
-            {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            {allTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
           <select className="form-select" style={{ width: 'auto', minWidth: 140 }} value={filterAssignee} onChange={e => setFilterAssignee(e.target.value)}>
             <option value="all">All Members</option>
-            {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+            {allUsers.filter(u => u.status === 'active').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
         </div>
         {(isAdmin || isLead) && (
@@ -757,6 +857,7 @@ export default function TaskBoardPage() {
                       <TaskCard
                         key={task.id}
                         task={task}
+                        allUsers={allUsers}
                         onClick={() => setSelectedTask(task)}
                         onDragStart={() => {}}
                         isMobile={true}
@@ -805,6 +906,7 @@ export default function TaskBoardPage() {
                     <TaskCard
                       key={task.id}
                       task={task}
+                      allUsers={allUsers}
                       onClick={() => setSelectedTask(task)}
                       onDragStart={(e) => handleDragStart(e, task.id)}
                       onAssign={(e) => { e.stopPropagation(); setAssignTask(task); }}
@@ -831,21 +933,24 @@ export default function TaskBoardPage() {
         </div>
       )}
 
-
       {/* Assign Task Modal */}
       {assignTask && (
         <AssignTaskModal
           task={assignTask}
+          allUsers={allUsers}
+          allTeams={allTeams}
           onClose={() => setAssignTask(null)}
-          onAssigned={loadTasks}
+          onAssigned={loadData}
         />
       )}
 
       {/* Create Task Modal */}
       {showCreateModal && (
         <CreateTaskModal
+          allUsers={allUsers}
+          allTeams={allTeams}
           onClose={() => setShowCreateModal(false)}
-          onCreated={loadTasks}
+          onCreated={loadData}
         />
       )}
 
@@ -853,11 +958,12 @@ export default function TaskBoardPage() {
       {selectedTask && (
         <TaskDetailDrawer
           task={selectedTask}
+          allUsers={allUsers}
           onClose={() => setSelectedTask(null)}
-          onUpdated={() => {
-            loadTasks();
+          onUpdated={async () => {
+            await loadData();
             // Refresh the selected task
-            const updated = getTasks().find(t => t.id === selectedTask.id);
+            const updated = tasks.find(t => t.id === selectedTask.id);
             if (updated) setSelectedTask(updated);
             else setSelectedTask(null);
           }}

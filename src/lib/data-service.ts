@@ -1,512 +1,566 @@
 // ============================================================
-// Turn2Law Intern Tracker — Data Service (localStorage CRUD)
+// Turn2Law Intern Tracker — Data Service (Supabase)
+// All data operations go through Supabase Postgres
 // ============================================================
-// All data operations go through this file.
-// To migrate to Supabase/PostgreSQL, only this file needs to change.
 
-import {
-  User, Team, Task, TaskActivity, Standup, Meeting, Attendance,
-  TaskStatus, PerformanceMetrics, TeamMetrics, UserRole,
+import { createClient } from '@/lib/supabase/client';
+import type {
+  Profile,
+  Team,
+  Task,
+  TaskActivity,
+  TaskStatus,
+  TaskPriority,
+  Standup,
+  Meeting,
+  Attendance,
+  AttendanceStatus,
+  PerformanceMetrics,
+  TeamMetrics,
+  WorkLog,
 } from './types';
-import { initializeSeedData } from './seed-data';
-import { hashPassword, verifyPassword } from './password';
 
-// ── Initialization ──
-export function initDataLayer() {
-  initializeSeedData();
-}
-
-// ── Generic localStorage helpers ──
-function getCollection<T>(key: string): T[] {
-  if (typeof window === 'undefined') return [];
-  const raw = localStorage.getItem(key);
-  return raw ? JSON.parse(raw) : [];
-}
-
-function setCollection<T>(key: string, data: T[]) {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(key, JSON.stringify(data));
-}
-
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 11) + '-' + Date.now().toString(36);
+// ── Helper: get supabase client ──
+function getSupabase() {
+  return createClient();
 }
 
 // ============================================================
-// USERS
+// USERS / PROFILES
 // ============================================================
 
-export function getUsers(): User[] {
-  return getCollection<User>('users');
+export async function getUsers(): Promise<Profile[]> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .order('name');
+
+  if (error) throw error;
+  return (data || []) as Profile[];
 }
 
-export function getUserById(id: string): User | undefined {
-  return getUsers().find(u => u.id === id);
+export async function getUserById(id: string): Promise<Profile | null> {
+  if (!id) return null;
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error) return null;
+  return data as Profile;
 }
 
-export function getUsersByTeam(teamId: string): User[] {
-  return getUsers().filter(u => u.team_id === teamId && u.status === 'active');
+export async function getUsersByTeam(teamId: string): Promise<Profile[]> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('team_id', teamId)
+    .eq('status', 'active')
+    .order('name');
+
+  if (error) throw error;
+  return (data || []) as Profile[];
 }
 
-export function getUsersByRole(role: UserRole): User[] {
-  return getUsers().filter(u => u.role === role && u.status === 'active');
+export async function updateUser(id: string, updates: Partial<Profile>): Promise<Profile | null> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('profiles')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as Profile;
 }
 
-export function createUser(data: Omit<User, 'id'>): User {
-  const users = getUsers();
-  // Hash password before storing
-  const hashedData = { ...data };
-  if (hashedData.password && !hashedData.password.startsWith('h$')) {
-    hashedData.password = hashPassword(hashedData.password);
-  }
-  const newUser: User = { ...hashedData, id: 'user-' + generateId() };
-  users.push(newUser);
-  setCollection('users', users);
-  return newUser;
-}
+export async function deactivateUser(id: string): Promise<void> {
+  const supabase = getSupabase();
+  const { error } = await supabase
+    .from('profiles')
+    .update({ status: 'inactive' })
+    .eq('id', id);
 
-export function updateUser(id: string, updates: Partial<User>): User | undefined {
-  const users = getUsers();
-  const idx = users.findIndex(u => u.id === id);
-  if (idx === -1) return undefined;
-  // Hash password if being updated
-  const processedUpdates = { ...updates };
-  if (processedUpdates.password && !processedUpdates.password.startsWith('h$')) {
-    processedUpdates.password = hashPassword(processedUpdates.password);
-  }
-  users[idx] = { ...users[idx], ...processedUpdates };
-  setCollection('users', users);
-  return users[idx];
-}
-
-export function deactivateUser(id: string): void {
-  updateUser(id, { status: 'inactive' });
-}
-
-export function authenticateUser(email: string, password: string): User | null {
-  const users = getUsers();
-  const user = users.find(u => u.email === email && u.status === 'active');
-  if (!user) return null;
-  // Use verifyPassword for hash comparison (also supports legacy plain-text)
-  if (!verifyPassword(password, user.password)) return null;
-  return user;
+  if (error) throw error;
 }
 
 // ============================================================
 // TEAMS
 // ============================================================
 
-export function getTeams(): Team[] {
-  return getCollection<Team>('teams');
+export async function getTeams(): Promise<Team[]> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('teams')
+    .select('*')
+    .order('name');
+
+  if (error) throw error;
+  return (data || []) as Team[];
 }
 
-export function getTeamById(id: string): Team | undefined {
-  return getTeams().find(t => t.id === id);
+export async function getTeamById(id: string): Promise<Team | null> {
+  if (!id) return null;
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('teams')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error) return null;
+  return data as Team;
 }
 
-export function createTeam(data: Omit<Team, 'id'>): Team {
-  const teams = getTeams();
-  const newTeam: Team = { ...data, id: 'team-' + generateId() };
-  teams.push(newTeam);
-  setCollection('teams', teams);
-  return newTeam;
+export async function createTeam(team: Omit<Team, 'id' | 'created_at'>): Promise<Team> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('teams')
+    .insert(team)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as Team;
 }
 
-export function updateTeam(id: string, updates: Partial<Team>): Team | undefined {
-  const teams = getTeams();
-  const idx = teams.findIndex(t => t.id === id);
-  if (idx === -1) return undefined;
-  teams[idx] = { ...teams[idx], ...updates };
-  setCollection('teams', teams);
-  return teams[idx];
+export async function updateTeam(id: string, updates: Partial<Team>): Promise<Team | null> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('teams')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as Team;
 }
 
-export function deleteTeam(id: string): void {
-  const teams = getTeams().filter(t => t.id !== id);
-  setCollection('teams', teams);
+export async function deleteTeam(id: string): Promise<void> {
+  const supabase = getSupabase();
+  const { error } = await supabase
+    .from('teams')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw error;
 }
 
 // ============================================================
 // TASKS
 // ============================================================
 
-export function getTasks(): Task[] {
-  return getCollection<Task>('tasks');
+export async function getTasks(): Promise<Task[]> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as Task[];
 }
 
-export function getTaskById(id: string): Task | undefined {
-  return getTasks().find(t => t.id === id);
+export async function getTaskById(id: string): Promise<Task | null> {
+  if (!id) return null;
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error) return null;
+  return data as Task;
 }
 
-export function getTasksByStatus(status: TaskStatus): Task[] {
-  return getTasks().filter(t => t.status === status);
+export async function getTasksByAssignee(userId: string): Promise<Task[]> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*')
+    .eq('assignee_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as Task[];
 }
 
-export function getTasksByAssignee(userId: string): Task[] {
-  return getTasks().filter(t => t.assignee_id === userId);
+export async function getTasksByTeam(teamId: string): Promise<Task[]> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*')
+    .eq('team_id', teamId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as Task[];
 }
 
-export function getTasksByTeam(teamId: string): Task[] {
-  return getTasks().filter(t => t.team_id === teamId);
+export async function createTask(task: Omit<Task, 'id' | 'created_at' | 'completed_at'>): Promise<Task> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('tasks')
+    .insert(task)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as Task;
 }
 
-export function createTask(data: Omit<Task, 'id' | 'created_at' | 'completed_at'>, userId: string): Task {
-  const tasks = getTasks();
-  const newTask: Task = {
-    ...data,
-    id: 'task-' + generateId(),
-    created_at: new Date().toISOString(),
-    completed_at: null,
-  };
-  tasks.push(newTask);
-  setCollection('tasks', tasks);
+export async function updateTask(id: string, updates: Partial<Task>): Promise<Task | null> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('tasks')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
 
-  // Log creation activity
-  logTaskActivity(newTask.id, userId, 'Created task', null, newTask.status, '');
-
-  return newTask;
+  if (error) throw error;
+  return data as Task;
 }
 
-export function updateTask(id: string, updates: Partial<Task>, userId: string): Task | undefined {
-  const tasks = getTasks();
-  const idx = tasks.findIndex(t => t.id === id);
-  if (idx === -1) return undefined;
+export async function deleteTask(id: string): Promise<void> {
+  const supabase = getSupabase();
+  const { error } = await supabase
+    .from('tasks')
+    .delete()
+    .eq('id', id);
 
-  const oldTask = { ...tasks[idx] };
-
-  // Handle completion timestamp
-  if (updates.status === 'done' && oldTask.status !== 'done') {
-    updates.completed_at = new Date().toISOString();
-  } else if (updates.status && updates.status !== 'done') {
-    updates.completed_at = null;
-  }
-
-  tasks[idx] = { ...tasks[idx], ...updates };
-  setCollection('tasks', tasks);
-
-  // Log status change
-  if (updates.status && updates.status !== oldTask.status) {
-    logTaskActivity(id, userId, 'Status changed', oldTask.status, updates.status, '');
-  }
-
-  return tasks[idx];
-}
-
-export function moveTask(taskId: string, newStatus: TaskStatus, userId: string): Task | undefined {
-  return updateTask(taskId, { status: newStatus }, userId);
-}
-
-export function deleteTask(id: string): void {
-  const tasks = getTasks().filter(t => t.id !== id);
-  setCollection('tasks', tasks);
+  if (error) throw error;
 }
 
 // ============================================================
 // TASK ACTIVITY
 // ============================================================
 
-export function getTaskActivities(): TaskActivity[] {
-  return getCollection<TaskActivity>('task_activity');
+export async function getTaskActivity(taskId: string): Promise<TaskActivity[]> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('task_activity')
+    .select('*')
+    .eq('task_id', taskId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as TaskActivity[];
 }
 
-export function getActivitiesByTask(taskId: string): TaskActivity[] {
-  return getTaskActivities()
-    .filter(a => a.task_id === taskId)
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+export async function logTaskActivity(activity: Omit<TaskActivity, 'id' | 'created_at'>): Promise<void> {
+  const supabase = getSupabase();
+  const { error } = await supabase
+    .from('task_activity')
+    .insert(activity);
+
+  if (error) throw error;
 }
 
-export function getRecentActivities(limit: number = 20): TaskActivity[] {
-  return getTaskActivities()
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    .slice(0, limit);
-}
+export async function getRecentActivities(limit: number = 10): Promise<TaskActivity[]> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('task_activity')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
 
-export function logTaskActivity(
-  taskId: string,
-  userId: string,
-  action: string,
-  fromStatus: TaskStatus | null,
-  toStatus: TaskStatus | null,
-  note: string
-): TaskActivity {
-  const activities = getTaskActivities();
-  const activity: TaskActivity = {
-    id: 'activity-' + generateId(),
-    task_id: taskId,
-    user_id: userId,
-    action,
-    from_status: fromStatus,
-    to_status: toStatus,
-    note,
-    created_at: new Date().toISOString(),
-  };
-  activities.push(activity);
-  setCollection('task_activity', activities);
-  return activity;
+  if (error) throw error;
+  return (data || []) as TaskActivity[];
 }
 
 // ============================================================
 // STANDUPS
 // ============================================================
 
-export function getStandups(): Standup[] {
-  return getCollection<Standup>('standups');
-}
-
-export function getStandupsByDate(date: string): Standup[] {
-  return getStandups().filter(s => s.date === date);
-}
-
-export function getStandupsByUser(userId: string): Standup[] {
-  return getStandups()
-    .filter(s => s.user_id === userId)
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-}
-
-export function getTodayStandup(userId: string): Standup | undefined {
-  const today = new Date().toISOString().split('T')[0];
-  return getStandups().find(s => s.user_id === userId && s.date === today);
-}
-
-export function submitStandup(
+export async function submitStandup(
   userId: string,
   didYesterday: string,
   doingToday: string,
   blockers: string
-): Standup {
-  const standups = getStandups();
+): Promise<Standup> {
+  const supabase = getSupabase();
   const today = new Date().toISOString().split('T')[0];
 
-  // Check if already submitted today — update if so
-  const existingIdx = standups.findIndex(s => s.user_id === userId && s.date === today);
+  const { data, error } = await supabase
+    .from('standups')
+    .upsert(
+      {
+        user_id: userId,
+        date: today,
+        did_yesterday: didYesterday,
+        doing_today: doingToday,
+        blockers: blockers || '',
+      },
+      { onConflict: 'user_id,date' }
+    )
+    .select()
+    .single();
 
-  if (existingIdx !== -1) {
-    standups[existingIdx] = {
-      ...standups[existingIdx],
-      did_yesterday: didYesterday,
-      doing_today: doingToday,
-      blockers,
-    };
-    setCollection('standups', standups);
-    return standups[existingIdx];
-  }
-
-  const standup: Standup = {
-    id: 'standup-' + generateId(),
-    user_id: userId,
-    date: today,
-    did_yesterday: didYesterday,
-    doing_today: doingToday,
-    blockers,
-    created_at: new Date().toISOString(),
-  };
-  standups.push(standup);
-  setCollection('standups', standups);
-  return standup;
+  if (error) throw error;
+  return data as Standup;
 }
 
-export function getStandupStreak(userId: string): number {
-  const standups = getStandupsByUser(userId);
-  if (standups.length === 0) return 0;
+export async function getTodayStandup(userId: string): Promise<Standup | null> {
+  const supabase = getSupabase();
+  const today = new Date().toISOString().split('T')[0];
 
-  let streak = 0;
-  const today = new Date();
+  const { data, error } = await supabase
+    .from('standups')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('date', today)
+    .single();
 
-  for (let i = 0; i < 365; i++) {
-    const checkDate = new Date(today);
-    checkDate.setDate(checkDate.getDate() - i);
-    const dateStr = checkDate.toISOString().split('T')[0];
-    // Skip weekends
-    const dow = checkDate.getDay();
-    if (dow === 0 || dow === 6) continue;
+  if (error) return null;
+  return data as Standup;
+}
 
-    if (standups.some(s => s.date === dateStr)) {
-      streak++;
-    } else {
-      break;
-    }
-  }
-  return streak;
+export async function getStandupsByDate(date: string): Promise<Standup[]> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('standups')
+    .select('*')
+    .eq('date', date);
+
+  if (error) throw error;
+  return (data || []) as Standup[];
+}
+
+export async function getStandupsByUser(userId: string): Promise<Standup[]> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('standups')
+    .select('*')
+    .eq('user_id', userId)
+    .order('date', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as Standup[];
 }
 
 // ============================================================
 // MEETINGS
 // ============================================================
 
-export function getMeetings(): Meeting[] {
-  return getCollection<Meeting>('meetings');
+export async function getMeetings(): Promise<Meeting[]> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('meetings')
+    .select('*')
+    .order('scheduled_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as Meeting[];
 }
 
-export function getMeetingById(id: string): Meeting | undefined {
-  return getMeetings().find(m => m.id === id);
+export async function getUpcomingMeetings(): Promise<Meeting[]> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('meetings')
+    .select('*')
+    .gte('scheduled_at', new Date().toISOString())
+    .order('scheduled_at', { ascending: true });
+
+  if (error) throw error;
+  return (data || []) as Meeting[];
 }
 
-export function getUpcomingMeetings(): Meeting[] {
-  const now = new Date().toISOString();
-  return getMeetings()
-    .filter(m => m.scheduled_at > now)
-    .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
+export async function getPastMeetings(): Promise<Meeting[]> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('meetings')
+    .select('*')
+    .lt('scheduled_at', new Date().toISOString())
+    .order('scheduled_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as Meeting[];
 }
 
-export function getPastMeetings(): Meeting[] {
-  const now = new Date().toISOString();
-  return getMeetings()
-    .filter(m => m.scheduled_at <= now)
-    .sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
-}
+export async function createMeeting(meeting: Omit<Meeting, 'id' | 'created_at'>): Promise<Meeting> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('meetings')
+    .insert(meeting)
+    .select()
+    .single();
 
-export function getMeetingsByTeam(teamId: string | null): Meeting[] {
-  return getMeetings().filter(m => m.team_id === teamId || m.team_id === null);
-}
-
-export function createMeeting(data: Omit<Meeting, 'id'>): Meeting {
-  const meetings = getMeetings();
-  const meeting: Meeting = { ...data, id: 'meeting-' + generateId() };
-  meetings.push(meeting);
-  setCollection('meetings', meetings);
-  return meeting;
-}
-
-export function updateMeeting(id: string, updates: Partial<Meeting>): Meeting | undefined {
-  const meetings = getMeetings();
-  const idx = meetings.findIndex(m => m.id === id);
-  if (idx === -1) return undefined;
-  meetings[idx] = { ...meetings[idx], ...updates };
-  setCollection('meetings', meetings);
-  return meetings[idx];
-}
-
-export function deleteMeeting(id: string): void {
-  const meetings = getMeetings().filter(m => m.id !== id);
-  setCollection('meetings', meetings);
+  if (error) throw error;
+  return data as Meeting;
 }
 
 // ============================================================
 // ATTENDANCE
 // ============================================================
 
-export function getAttendance(): Attendance[] {
-  return getCollection<Attendance>('attendance');
+export async function getAttendanceByMeeting(meetingId: string): Promise<Attendance[]> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('*')
+    .eq('meeting_id', meetingId);
+
+  if (error) throw error;
+  return (data || []) as Attendance[];
 }
 
-export function getAttendanceByMeeting(meetingId: string): Attendance[] {
-  return getAttendance().filter(a => a.meeting_id === meetingId);
-}
+export async function markAttendance(
+  meetingId: string,
+  userId: string,
+  status: AttendanceStatus
+): Promise<Attendance> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('attendance')
+    .upsert(
+      {
+        meeting_id: meetingId,
+        user_id: userId,
+        status,
+        check_in_time: status === 'present' || status === 'late' ? new Date().toISOString() : null,
+      },
+      { onConflict: 'meeting_id,user_id' }
+    )
+    .select()
+    .single();
 
-export function getAttendanceByUser(userId: string): Attendance[] {
-  return getAttendance().filter(a => a.user_id === userId);
-}
-
-export function markAttendance(meetingId: string, userId: string, status: Attendance['status']): Attendance {
-  const records = getAttendance();
-  const existingIdx = records.findIndex(a => a.meeting_id === meetingId && a.user_id === userId);
-
-  if (existingIdx !== -1) {
-    records[existingIdx] = {
-      ...records[existingIdx],
-      status,
-      check_in_time: status === 'present' || status === 'late' ? new Date().toISOString() : null,
-    };
-    setCollection('attendance', records);
-    return records[existingIdx];
-  }
-
-  const record: Attendance = {
-    id: 'att-' + generateId(),
-    meeting_id: meetingId,
-    user_id: userId,
-    status,
-    check_in_time: status === 'present' || status === 'late' ? new Date().toISOString() : null,
-  };
-  records.push(record);
-  setCollection('attendance', records);
-  return record;
+  if (error) throw error;
+  return data as Attendance;
 }
 
 // ============================================================
-// PERFORMANCE METRICS (Computed)
+// PERFORMANCE METRICS (computed client-side)
 // ============================================================
 
-export function getUserPerformance(userId: string): PerformanceMetrics {
-  const userTasks = getTasksByAssignee(userId);
+export async function getUserPerformance(userId: string): Promise<PerformanceMetrics> {
+  const supabase = getSupabase();
+
+  // Fetch user's tasks
+  const { data: tasks } = await supabase
+    .from('tasks')
+    .select('*')
+    .eq('assignee_id', userId);
+
+  const userTasks = (tasks || []) as Task[];
   const completed = userTasks.filter(t => t.status === 'done');
   const onTime = completed.filter(t => {
-    if (!t.completed_at || !t.due_date) return false;
-    return new Date(t.completed_at) <= new Date(t.due_date + 'T23:59:59Z');
+    if (!t.due_date || !t.completed_at) return true;
+    return new Date(t.completed_at) <= new Date(t.due_date + 'T23:59:59');
   });
 
-  const userStandups = getStandupsByUser(userId);
-  const streak = getStandupStreak(userId);
+  // Fetch user's standups
+  const { data: standups } = await supabase
+    .from('standups')
+    .select('date')
+    .eq('user_id', userId)
+    .order('date', { ascending: false });
 
-  const userAttendance = getAttendanceByUser(userId);
-  const presentOrLate = userAttendance.filter(a => a.status === 'present' || a.status === 'late');
+  const userStandups = (standups || []) as { date: string }[];
 
-  // Calculate business days since join
-  const user = getUserById(userId);
-  const joinDate = user ? new Date(user.join_date) : new Date();
-  const now = new Date();
-  let businessDays = 0;
-  const cursor = new Date(joinDate);
-  while (cursor <= now) {
-    const dow = cursor.getDay();
-    if (dow !== 0 && dow !== 6) businessDays++;
-    cursor.setDate(cursor.getDate() + 1);
+  // Calculate standup streak
+  let streak = 0;
+  const today = new Date();
+  const checkDate = new Date(today);
+
+  for (let i = 0; i < 60; i++) {
+    const dateStr = checkDate.toISOString().split('T')[0];
+    const dayOfWeek = checkDate.getDay();
+
+    // Skip weekends
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      checkDate.setDate(checkDate.getDate() - 1);
+      continue;
+    }
+
+    if (userStandups.some(s => s.date === dateStr)) {
+      streak++;
+      checkDate.setDate(checkDate.getDate() - 1);
+    } else {
+      // Today might not have a standup yet
+      if (i === 0) {
+        checkDate.setDate(checkDate.getDate() - 1);
+        continue;
+      }
+      break;
+    }
   }
+
+  // Fetch attendance
+  const { data: attendanceData } = await supabase
+    .from('attendance')
+    .select('status')
+    .eq('user_id', userId);
+
+  const attendance = (attendanceData || []) as { status: AttendanceStatus }[];
+  const totalMeetings = attendance.length;
+  const present = attendance.filter(a => a.status === 'present' || a.status === 'late').length;
 
   return {
     user_id: userId,
     tasks_completed: completed.length,
     tasks_total: userTasks.length,
-    on_time_rate: completed.length > 0 ? Math.round((onTime.length / completed.length) * 100) : 0,
+    on_time_rate: completed.length > 0 ? Math.round((onTime.length / completed.length) * 100) : 100,
     standup_streak: streak,
     standups_submitted: userStandups.length,
-    standups_expected: Math.min(businessDays, 30), // Cap at 30 days
-    attendance_rate: userAttendance.length > 0
-      ? Math.round((presentOrLate.length / userAttendance.length) * 100)
-      : 100,
+    standups_expected: 0, // Computed if needed
+    attendance_rate: totalMeetings > 0 ? Math.round((present / totalMeetings) * 100) : 100,
   };
 }
 
-export function getTeamMetrics(teamId: string): TeamMetrics {
-  const teamTasks = getTasksByTeam(teamId);
-  const completed = teamTasks.filter(t => t.status === 'done');
-  const members = getUsersByTeam(teamId);
+export async function getTeamMetrics(teamId: string): Promise<TeamMetrics> {
+  const supabase = getSupabase();
 
+  // Get team tasks
+  const { data: tasks } = await supabase
+    .from('tasks')
+    .select('*')
+    .eq('team_id', teamId);
+
+  const teamTasks = (tasks || []) as Task[];
+  const completed = teamTasks.filter(t => t.status === 'done');
+
+  // Get active members
+  const { data: members } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('team_id', teamId)
+    .eq('status', 'active');
+
+  const activeMembers = (members || []).length;
+
+  // Standup compliance (today)
   const today = new Date().toISOString().split('T')[0];
-  const todayStandups = getStandupsByDate(today);
-  const teamStandups = todayStandups.filter(s =>
-    members.some(m => m.id === s.user_id)
-  );
-  const interns = members.filter(m => m.role === 'intern');
+  const { data: todayStandups } = await supabase
+    .from('standups')
+    .select('user_id')
+    .eq('date', today);
+
+  const internMembers = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('team_id', teamId)
+    .eq('role', 'intern')
+    .eq('status', 'active');
+
+  const totalInterns = (internMembers.data || []).length;
+  const standupsToday = (todayStandups || []).filter(s =>
+    (internMembers.data || []).some(m => m.id === s.user_id)
+  ).length;
 
   return {
     team_id: teamId,
     total_tasks: teamTasks.length,
     completed_tasks: completed.length,
     completion_rate: teamTasks.length > 0 ? Math.round((completed.length / teamTasks.length) * 100) : 0,
-    active_members: members.length,
-    standup_compliance: interns.length > 0
-      ? Math.round((teamStandups.filter(s => interns.some(i => i.id === s.user_id)).length / interns.length) * 100)
-      : 100,
+    active_members: activeMembers,
+    standup_compliance: totalInterns > 0 ? Math.round((standupsToday / totalInterns) * 100) : 100,
   };
-}
-
-// ============================================================
-// DATA RESET (for development)
-// ============================================================
-
-export function resetAllData(): void {
-  if (typeof window === 'undefined') return;
-  localStorage.removeItem('users');
-  localStorage.removeItem('teams');
-  localStorage.removeItem('tasks');
-  localStorage.removeItem('task_activity');
-  localStorage.removeItem('standups');
-  localStorage.removeItem('meetings');
-  localStorage.removeItem('attendance');
-  localStorage.removeItem('intern_tracker_initialized');
-  localStorage.removeItem('intern_tracker_data_version');
-  localStorage.removeItem('current_user');
-  localStorage.removeItem('reset_user_id');
-  initializeSeedData();
 }

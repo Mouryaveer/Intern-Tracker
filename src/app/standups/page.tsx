@@ -1,18 +1,15 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import {
   getTodayStandup,
   submitStandup,
   getStandupsByDate,
   getUsers,
-  getUsersByTeam,
-  getStandupsByUser,
-  getUserById,
   getTeams,
 } from '@/lib/data-service';
-import { Standup, User } from '@/lib/types';
+import { Standup, Profile, Team } from '@/lib/types';
 import {
   MessageSquareText,
   CheckCircle2,
@@ -26,6 +23,7 @@ import {
   Users,
   Calendar,
 } from 'lucide-react';
+import { subscribeToTable, unsubscribe } from '@/lib/realtime';
 
 function getInitials(name: string): string {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -39,31 +37,54 @@ function StandupForm({ onSubmitted }: { onSubmitted: () => void }) {
   const [blockers, setBlockers] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-
-  const existingStandup = user ? getTodayStandup(user.id) : null;
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (existingStandup) {
-      setDidYesterday(existingStandup.did_yesterday);
-      setDoingToday(existingStandup.doing_today);
-      setBlockers(existingStandup.blockers);
-      setSubmitted(true);
-    }
-  }, []);
+    const fetchExisting = async () => {
+      if (!user) return;
+      try {
+        const existing = await getTodayStandup(user.id);
+        if (existing) {
+          setDidYesterday(existing.did_yesterday);
+          setDoingToday(existing.doing_today);
+          setBlockers(existing.blockers);
+          setSubmitted(true);
+        }
+      } catch (err) {
+        console.error('Error fetching today standup:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchExisting();
+  }, [user]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
 
-    submitStandup(user.id, didYesterday, doingToday, blockers);
-    setSubmitted(true);
-    setIsEditing(false);
-    onSubmitted();
+    try {
+      setLoading(true);
+      await submitStandup(user.id, didYesterday, doingToday, blockers);
+      setSubmitted(true);
+      setIsEditing(false);
+      onSubmitted();
+    } catch (err) {
+      console.error('Error submitting standup:', err);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="card skeleton-pulse" style={{ height: 350, border: 'none', background: 'var(--color-surface)' }} />
+    );
+  }
 
   if (submitted && !isEditing) {
     return (
-      <div className="card" style={{ borderLeft: '3px solid var(--color-done)' }}>
+      <div className="card animate-slide-up" style={{ borderLeft: '3px solid var(--color-done)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-lg)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
             <CheckCircle2 size={20} style={{ color: 'var(--color-done)' }} />
@@ -93,7 +114,7 @@ function StandupForm({ onSubmitted }: { onSubmitted: () => void }) {
   }
 
   return (
-    <div className="card">
+    <div className="card animate-slide-up">
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-xl)' }}>
         <MessageSquareText size={20} style={{ color: 'var(--color-accent)' }} />
         <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600 }}>
@@ -153,18 +174,53 @@ function TeamStandupView() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
 
-  const teams = getTeams();
+  const [allTeams, setAllTeams] = useState<Team[]>([]);
+  const [allUsers, setAllUsers] = useState<Profile[]>([]);
+  const [dateStandups, setDateStandups] = useState<Standup[]>([]);
   const [filterTeam, setFilterTeam] = useState<string>(user?.team_id || 'all');
+  const [loading, setLoading] = useState(true);
 
-  // Get team members
-  let members: User[];
-  if (isAdmin || filterTeam === 'all') {
-    members = getUsers().filter(u => u.role === 'intern' && u.status === 'active');
-  } else {
-    members = getUsersByTeam(filterTeam).filter(u => u.role === 'intern');
+  const loadData = useCallback(async () => {
+    try {
+      const [fetchedTeams, fetchedUsers, fetchedStandups] = await Promise.all([
+        getTeams(),
+        getUsers(),
+        getStandupsByDate(selectedDate),
+      ]);
+      setAllTeams(fetchedTeams);
+      setAllUsers(fetchedUsers);
+      setDateStandups(fetchedStandups);
+    } catch (err) {
+      console.error('Error loading team standup view:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedDate]);
+
+  useEffect(() => {
+    loadData();
+
+    // Realtime subscriptions
+    const standupsChannel = subscribeToTable({
+      table: 'standups',
+      callback: () => loadData(),
+    });
+
+    return () => unsubscribe(standupsChannel);
+  }, [loadData]);
+
+  if (loading) {
+    return (
+      <div className="card skeleton-pulse" style={{ height: 400, border: 'none', background: 'var(--color-surface)' }} />
+    );
   }
 
-  const dateStandups = getStandupsByDate(selectedDate);
+  // Filter team members (interns)
+  let members = allUsers.filter(u => u.role === 'intern' && u.status === 'active');
+  if (filterTeam !== 'all') {
+    members = members.filter(u => u.team_id === filterTeam);
+  }
+
   const submittedCount = dateStandups.filter(s => members.some(m => m.id === s.user_id)).length;
 
   return (
@@ -182,10 +238,10 @@ function TeamStandupView() {
               onChange={e => setSelectedDate(e.target.value)}
             />
           </div>
-          {(isAdmin) && (
+          {isAdmin && (
             <select className="form-select" style={{ width: 'auto', minWidth: 140 }} value={filterTeam} onChange={e => setFilterTeam(e.target.value)}>
               <option value="all">All Teams</option>
-              {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              {allTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           )}
         </div>
@@ -207,7 +263,7 @@ function TeamStandupView() {
         {members.map((member) => {
           const standup = dateStandups.find(s => s.user_id === member.id);
           const isExpanded = expandedUser === member.id;
-          const team = member.team_id ? teams.find(t => t.id === member.team_id) : null;
+          const team = member.team_id ? allTeams.find(t => t.id === member.team_id) : null;
 
           return (
             <div
@@ -239,7 +295,7 @@ function TeamStandupView() {
               </div>
 
               {standup && isExpanded && (
-                <div style={{ marginTop: 'var(--spacing-md)', paddingTop: 'var(--spacing-md)', borderTop: '1px solid var(--color-border)' }}>
+                <div style={{ marginTop: 'var(--spacing-md)', paddingTop: 'var(--spacing-md)', borderTop: '1px solid var(--color-border)' }} onClick={e => e.stopPropagation()}>
                   <div className="standup-section">
                     <div className="standup-section-label">What they did</div>
                     <div className="standup-section-text">{standup.did_yesterday}</div>
@@ -282,11 +338,14 @@ export default function StandupsPage() {
   const { user, isIntern } = useAuth();
   const [mounted, setMounted] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [activeTab, setActiveTab] = useState<'form' | 'team'>(isIntern ? 'form' : 'team');
+  const [activeTab, setActiveTab] = useState<'form' | 'team'>('team');
 
   useEffect(() => {
     setMounted(true);
-  }, []);
+    if (isIntern) {
+      setActiveTab('form');
+    }
+  }, [isIntern]);
 
   if (!mounted || !user) return null;
 

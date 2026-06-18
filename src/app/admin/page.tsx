@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { useRouter } from 'next/navigation';
 import {
@@ -8,16 +8,11 @@ import {
   getTeams,
   getTasks,
   getStandupsByDate,
-  createUser,
-  updateUser,
-  deactivateUser,
   createTeam,
   updateTeam,
   deleteTeam,
-  resetAllData,
-  getUsersByTeam,
 } from '@/lib/data-service';
-import { User, UserRole, Team } from '@/lib/types';
+import { Profile, UserRole, Team, Task, Standup } from '@/lib/types';
 import {
   Shield,
   Users,
@@ -29,56 +24,77 @@ import {
   Trash2,
   UserX,
   UserCheck,
-  RotateCcw,
-  AlertTriangle,
-  Search,
-  Download,
   KeyRound,
+  Search,
 } from 'lucide-react';
+import { subscribeToTable, unsubscribe } from '@/lib/realtime';
 
 function getInitials(name: string): string {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
 // ── Create/Edit User Modal ──
-function UserFormModal({ editUser, onClose, onSaved }: {
-  editUser?: User | null;
+interface UserFormModalProps {
+  editUser?: Profile | null;
+  allTeams: Team[];
   onClose: () => void;
   onSaved: () => void;
-}) {
-  const teams = getTeams();
+}
+
+function UserFormModal({ editUser, allTeams, onClose, onSaved }: UserFormModalProps) {
   const [name, setName] = useState(editUser?.name || '');
   const [email, setEmail] = useState(editUser?.email || '');
   const [role, setRole] = useState<UserRole>(editUser?.role || 'intern');
   const [teamId, setTeamId] = useState(editUser?.team_id || '');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(true);
+    setError('');
 
-    if (editUser) {
-      const updates: Partial<User> = { name, email, role, team_id: teamId || null };
-      if (password) {
-        updates.password = password;
-        updates.must_reset_password = true;
+    try {
+      if (editUser) {
+        const body: any = { name, email, role, team_id: teamId || null };
+        if (password) {
+          body.password = password;
+        }
+        const res = await fetch(`/api/users/${editUser.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'Failed to update user');
+        }
+      } else {
+        const body = {
+          name,
+          email,
+          role,
+          team_id: teamId || null,
+          password: password || undefined,
+        };
+        const res = await fetch('/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'Failed to create user');
+        }
       }
-      updateUser(editUser.id, updates);
-    } else {
-      createUser({
-        name,
-        email,
-        password: password || 'temp' + Math.random().toString(36).substring(2, 6),
-        role,
-        team_id: teamId || null,
-        avatar_url: '',
-        join_date: new Date().toISOString().split('T')[0],
-        status: 'active',
-        must_reset_password: true,
-      });
+      onSaved();
+      onClose();
+    } catch (err: any) {
+      setError(err.message || 'An error occurred');
+    } finally {
+      setLoading(false);
     }
-
-    onSaved();
-    onClose();
   };
 
   return (
@@ -90,6 +106,11 @@ function UserFormModal({ editUser, onClose, onSaved }: {
         </div>
         <form onSubmit={handleSubmit}>
           <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-lg)' }}>
+            {error && (
+              <div className="login-error">
+                {error}
+              </div>
+            )}
             <div className="form-group">
               <label className="form-label">Full Name *</label>
               <input className="form-input" value={name} onChange={e => setName(e.target.value)} required placeholder="e.g., Rahul Kumar" />
@@ -111,7 +132,7 @@ function UserFormModal({ editUser, onClose, onSaved }: {
                 <label className="form-label">Team</label>
                 <select className="form-select" value={teamId} onChange={e => setTeamId(e.target.value)}>
                   <option value="">No team</option>
-                  {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  {allTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
             </div>
@@ -134,8 +155,8 @@ function UserFormModal({ editUser, onClose, onSaved }: {
           </div>
           <div className="modal-footer">
             <button type="button" className="btn btn-outline" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-accent">
-              {editUser ? 'Save Changes' : 'Create User'}
+            <button type="submit" className="btn btn-accent" disabled={loading}>
+              {loading ? 'Saving...' : editUser ? 'Save Changes' : 'Create User'}
             </button>
           </div>
         </form>
@@ -145,25 +166,39 @@ function UserFormModal({ editUser, onClose, onSaved }: {
 }
 
 // ── Create Team Modal ──
-function TeamFormModal({ editTeam, onClose, onSaved }: {
+interface TeamFormModalProps {
   editTeam?: Team | null;
+  allUsers: Profile[];
   onClose: () => void;
   onSaved: () => void;
-}) {
-  const users = getUsers().filter(u => u.role === 'lead' && u.status === 'active');
+}
+
+function TeamFormModal({ editTeam, allUsers, onClose, onSaved }: TeamFormModalProps) {
+  const activeLeads = allUsers.filter(u => u.role === 'lead' && u.status === 'active');
   const [name, setName] = useState(editTeam?.name || '');
   const [description, setDescription] = useState(editTeam?.description || '');
   const [leadId, setLeadId] = useState(editTeam?.lead_id || '');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editTeam) {
-      updateTeam(editTeam.id, { name, description, lead_id: leadId || null });
-    } else {
-      createTeam({ name, description, lead_id: leadId || null });
+    setLoading(true);
+    setError('');
+
+    try {
+      if (editTeam) {
+        await updateTeam(editTeam.id, { name, description, lead_id: leadId || null });
+      } else {
+        await createTeam({ name, description, lead_id: leadId || null });
+      }
+      onSaved();
+      onClose();
+    } catch (err: any) {
+      setError(err.message || 'Failed to save team');
+    } finally {
+      setLoading(false);
     }
-    onSaved();
-    onClose();
   };
 
   return (
@@ -175,6 +210,11 @@ function TeamFormModal({ editTeam, onClose, onSaved }: {
         </div>
         <form onSubmit={handleSubmit}>
           <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-lg)' }}>
+            {error && (
+              <div className="login-error">
+                {error}
+              </div>
+            )}
             <div className="form-group">
               <label className="form-label">Team Name *</label>
               <input className="form-input" value={name} onChange={e => setName(e.target.value)} required placeholder="e.g., Tracker Squad" />
@@ -187,13 +227,15 @@ function TeamFormModal({ editTeam, onClose, onSaved }: {
               <label className="form-label">Team Lead</label>
               <select className="form-select" value={leadId} onChange={e => setLeadId(e.target.value)}>
                 <option value="">No lead assigned</option>
-                {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                {activeLeads.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
             </div>
           </div>
           <div className="modal-footer">
             <button type="button" className="btn btn-outline" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-accent">{editTeam ? 'Save' : 'Create Team'}</button>
+            <button type="submit" className="btn btn-accent" disabled={loading}>
+              {loading ? 'Saving...' : editTeam ? 'Save' : 'Create Team'}
+            </button>
           </div>
         </form>
       </div>
@@ -207,23 +249,77 @@ export default function AdminPage() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'teams'>('overview');
+  
+  const [allUsers, setAllUsers] = useState<Profile[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [allTasks, setAllTasks] = useState<Task[]>([]);
+  const [todayStandups, setTodayStandups] = useState<Standup[]>([]);
+  const [loading, setLoading] = useState(true);
+
   const [showUserModal, setShowUserModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
-  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editingUser, setEditingUser] = useState<Profile | null>(null);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
+
+  const loadData = useCallback(async () => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const [fetchedUsers, fetchedTeams, fetchedTasks, fetchedStandups] = await Promise.all([
+        getUsers(),
+        getTeams(),
+        getTasks(),
+        getStandupsByDate(today),
+      ]);
+      setAllUsers(fetchedUsers);
+      setTeams(fetchedTeams);
+      setAllTasks(fetchedTasks);
+      setTodayStandups(fetchedStandups);
+    } catch (err) {
+      console.error('Error loading admin panel data:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     setMounted(true);
-  }, []);
+    if (isAdmin) {
+      loadData();
+
+      // Subscribe to updates
+      const profilesChannel = subscribeToTable({
+        table: 'profiles',
+        callback: () => loadData(),
+      });
+      const teamsChannel = subscribeToTable({
+        table: 'teams',
+        callback: () => loadData(),
+      });
+      const tasksChannel = subscribeToTable({
+        table: 'tasks',
+        callback: () => loadData(),
+      });
+      const standupsChannel = subscribeToTable({
+        table: 'standups',
+        callback: () => loadData(),
+      });
+
+      return () => {
+        unsubscribe(profilesChannel);
+        unsubscribe(teamsChannel);
+        unsubscribe(tasksChannel);
+        unsubscribe(standupsChannel);
+      };
+    }
+  }, [isAdmin, loadData]);
 
   if (!mounted || !user) return null;
 
   // Redirect non-admins
   if (!isAdmin) {
     return (
-      <div className="empty-state">
+      <div className="empty-state animate-slide-up">
         <div className="empty-state-icon"><Shield size={28} /></div>
         <div className="empty-state-title">Access Denied</div>
         <div className="empty-state-text">Only administrators can access this panel.</div>
@@ -231,11 +327,19 @@ export default function AdminPage() {
     );
   }
 
-  const allUsers = getUsers();
-  const teams = getTeams();
-  const allTasks = getTasks();
-  const today = new Date().toISOString().split('T')[0];
-  const todayStandups = getStandupsByDate(today);
+  if (loading) {
+    return (
+      <div className="animate-slide-up" style={{ padding: 'var(--spacing-xl) 0' }}>
+        <div className="stats-grid" style={{ marginBottom: 'var(--spacing-xl)' }}>
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="stat-card skeleton-pulse" style={{ height: 100, border: 'none', background: 'var(--color-surface)' }} />
+          ))}
+        </div>
+        <div className="skeleton-pulse" style={{ height: 40, width: 300, background: 'var(--color-surface)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--spacing-xl)' }} />
+        <div className="table-container skeleton-pulse" style={{ height: 300, background: 'var(--color-surface)' }} />
+      </div>
+    );
+  }
 
   const activeUsers = allUsers.filter(u => u.status === 'active');
   const interns = activeUsers.filter(u => u.role === 'intern');
@@ -249,34 +353,72 @@ export default function AdminPage() {
     );
   }
 
-  const handleDeactivateUser = (userId: string) => {
+  const handleDeactivateUser = async (userId: string) => {
     if (confirm('Deactivate this user? They will lose access.')) {
-      deactivateUser(userId);
-      setRefreshKey(k => k + 1);
+      try {
+        const res = await fetch(`/api/users/${userId}`, { method: 'DELETE' });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'Failed to deactivate user');
+        }
+        await loadData();
+      } catch (err: any) {
+        alert(err.message || 'Error deactivating user');
+      }
     }
   };
 
-  const handleActivateUser = (userId: string) => {
-    updateUser(userId, { status: 'active' });
-    setRefreshKey(k => k + 1);
-  };
-
-  const handleResetData = () => {
-    if (confirm('⚠️ This will reset ALL data to the seed state. Continue?')) {
-      resetAllData();
-      setRefreshKey(k => k + 1);
+  const handleActivateUser = async (userId: string) => {
+    try {
+      const res = await fetch(`/api/users/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'active' }),
+      });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Failed to activate user');
+      }
+      await loadData();
+    } catch (err: any) {
+      alert(err.message || 'Error activating user');
     }
   };
 
-  const handleForcePasswordReset = (userId: string, userName: string) => {
-    if (confirm(`Force "${userName}" to reset their password on next login?`)) {
-      updateUser(userId, { must_reset_password: true });
-      setRefreshKey(k => k + 1);
+  const handleForcePasswordReset = async (userId: string, userName: string) => {
+    const tempPassword = 'temp' + Math.random().toString(36).substring(2, 8);
+    if (confirm(`Force "${userName}" to reset their password on next login? A temporary password "${tempPassword}" will be set.`)) {
+      try {
+        const res = await fetch(`/api/users/${userId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: tempPassword }),
+        });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'Failed to force reset');
+        }
+        alert(`Temporary password set to: ${tempPassword}\n\nPlease share this with the user.`);
+        await loadData();
+      } catch (err: any) {
+        alert(err.message || 'Error forcing password reset');
+      }
+    }
+  };
+
+  const handleDeleteTeam = async (teamId: string, teamName: string) => {
+    if (confirm(`Delete team "${teamName}"?`)) {
+      try {
+        await deleteTeam(teamId);
+        await loadData();
+      } catch (err: any) {
+        alert(err.message || 'Failed to delete team');
+      }
     }
   };
 
   return (
-    <div className="animate-slide-up" key={refreshKey}>
+    <div className="animate-slide-up">
       {/* Tabs */}
       <div className="tabs">
         <button className={`tab ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>
@@ -311,7 +453,7 @@ export default function AdminPage() {
             <div className="stat-card">
               <div className="stat-icon success"><MessageSquareText size={22} /></div>
               <div>
-                <div className="stat-value">{todayStandups.length}/{interns.length}</div>
+                <div className="stat-value">{todayStandups.filter(s => interns.some(i => i.id === s.user_id)).length}/{interns.length}</div>
                 <div className="stat-label">Standups Today</div>
               </div>
             </div>
@@ -334,16 +476,13 @@ export default function AdminPage() {
               <button className="btn btn-outline" onClick={() => { setEditingTeam(null); setShowTeamModal(true); }}>
                 <Plus size={16} /> Create Team
               </button>
-              <button className="btn btn-outline" onClick={handleResetData} style={{ color: 'var(--color-blocked)' }}>
-                <RotateCcw size={16} /> Reset All Data
-              </button>
             </div>
           </div>
 
           {/* Role Breakdown */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--spacing-xl)', marginTop: 'var(--spacing-xl)' }}>
             {teams.map(team => {
-              const members = getUsersByTeam(team.id);
+              const members = allUsers.filter(u => u.team_id === team.id && u.status === 'active');
               return (
                 <div className="card" key={team.id}>
                   <div className="card-header">
@@ -354,10 +493,15 @@ export default function AdminPage() {
                     {members.map(m => (
                       <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', fontSize: 'var(--font-size-sm)' }}>
                         <div className="avatar avatar-sm" style={{ fontSize: '9px' }}>{getInitials(m.name)}</div>
-                        <span style={{ flex: 1 }}>{m.name}</span>
+                        <span style={{ flex: 1 }} className="truncate">{m.name}</span>
                         <span className={`badge badge-${m.role}`}>{m.role}</span>
                       </div>
                     ))}
+                    {members.length === 0 && (
+                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', textAlign: 'center', padding: 'var(--spacing-sm) 0' }}>
+                        No members assigned
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -437,7 +581,7 @@ export default function AdminPage() {
                           >
                             <Edit3 size={14} />
                           </button>
-                          {!u.must_reset_password && u.id !== user.id && (
+                          {u.id !== user.id && (
                             <button
                               className="btn btn-ghost btn-icon btn-sm"
                               onClick={() => handleForcePasswordReset(u.id, u.name)}
@@ -447,24 +591,26 @@ export default function AdminPage() {
                               <KeyRound size={14} />
                             </button>
                           )}
-                          {u.status === 'active' ? (
-                            <button
-                              className="btn btn-ghost btn-icon btn-sm"
-                              onClick={() => handleDeactivateUser(u.id)}
-                              title="Deactivate"
-                              style={{ color: 'var(--color-blocked)' }}
-                            >
-                              <UserX size={14} />
-                            </button>
-                          ) : (
-                            <button
-                              className="btn btn-ghost btn-icon btn-sm"
-                              onClick={() => handleActivateUser(u.id)}
-                              title="Activate"
-                              style={{ color: 'var(--color-done)' }}
-                            >
-                              <UserCheck size={14} />
-                            </button>
+                          {u.id !== user.id && (
+                            u.status === 'active' ? (
+                              <button
+                                className="btn btn-ghost btn-icon btn-sm"
+                                onClick={() => handleDeactivateUser(u.id)}
+                                title="Deactivate"
+                                style={{ color: 'var(--color-blocked)' }}
+                              >
+                                <UserX size={14} />
+                              </button>
+                            ) : (
+                              <button
+                                className="btn btn-ghost btn-icon btn-sm"
+                                onClick={() => handleActivateUser(u.id)}
+                                title="Activate"
+                                style={{ color: 'var(--color-done)' }}
+                              >
+                                <UserCheck size={14} />
+                              </button>
+                            )
                           )}
                         </div>
                       </td>
@@ -500,7 +646,7 @@ export default function AdminPage() {
               <tbody>
                 {teams.map(team => {
                   const lead = team.lead_id ? allUsers.find(u => u.id === team.lead_id) : null;
-                  const members = getUsersByTeam(team.id);
+                  const members = allUsers.filter(u => u.team_id === team.id && u.status === 'active');
                   return (
                     <tr key={team.id}>
                       <td style={{ fontWeight: 600 }}>{team.name}</td>
@@ -518,12 +664,7 @@ export default function AdminPage() {
                           </button>
                           <button
                             className="btn btn-ghost btn-icon btn-sm"
-                            onClick={() => {
-                              if (confirm(`Delete team "${team.name}"?`)) {
-                                deleteTeam(team.id);
-                                setRefreshKey(k => k + 1);
-                              }
-                            }}
+                            onClick={() => handleDeleteTeam(team.id, team.name)}
                             title="Delete"
                             style={{ color: 'var(--color-blocked)' }}
                           >
@@ -544,16 +685,18 @@ export default function AdminPage() {
       {showUserModal && (
         <UserFormModal
           editUser={editingUser}
+          allTeams={teams}
           onClose={() => { setShowUserModal(false); setEditingUser(null); }}
-          onSaved={() => setRefreshKey(k => k + 1)}
+          onSaved={loadData}
         />
       )}
 
       {showTeamModal && (
         <TeamFormModal
           editTeam={editingTeam}
+          allUsers={allUsers}
           onClose={() => { setShowTeamModal(false); setEditingTeam(null); }}
-          onSaved={() => setRefreshKey(k => k + 1)}
+          onSaved={loadData}
         />
       )}
     </div>

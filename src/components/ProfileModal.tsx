@@ -69,21 +69,20 @@ export default function ProfileModal({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setSaving(true);
+    setError('');
     try {
-      const updated = updateUser(user.id, { avatar_url: preview });
+      const updated = await updateUser(user.id, { avatar_url: preview });
       if (updated) {
         setUser(updated);
-        localStorage.setItem('current_user', JSON.stringify(updated));
       }
-    } catch {
-      setError('Failed to save. Storage may be full.');
+      onClose();
+    } catch (err: any) {
+      setError(err.message || 'Failed to save profile photo.');
+    } finally {
       setSaving(false);
-      return;
     }
-    setSaving(false);
-    onClose();
   };
 
   return (

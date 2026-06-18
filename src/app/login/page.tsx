@@ -14,13 +14,13 @@ export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    setTimeout(() => {
-      const result = login(email, password);
+    try {
+      const result = await login(email, password);
       
       if (!result.success) {
         setError(result.error || 'Login failed');
@@ -34,7 +34,10 @@ export default function LoginPage() {
       }
 
       router.push('/dashboard');
-    }, 500); // Small delay for UX
+    } catch (err) {
+      setError('An unexpected error occurred. Please try again.');
+      setLoading(false);
+    }
   };
 
   return (
@@ -181,21 +184,6 @@ export default function LoginPage() {
               )}
             </button>
           </form>
-
-          {/* Demo credentials hint */}
-          <div style={{
-            marginTop: 'var(--spacing-2xl)',
-            padding: 'var(--spacing-base)',
-            background: 'var(--color-bg)',
-            borderRadius: 'var(--radius-md)',
-            fontSize: 'var(--font-size-xs)',
-            color: 'var(--color-text-secondary)',
-          }}>
-            <div style={{ fontWeight: 600, marginBottom: 'var(--spacing-xs)' }}>Demo Credentials</div>
-            <div><strong>Admin:</strong> hanush@turn2law.in / admin123</div>
-            <div><strong>Lead:</strong> priya@turn2law.in / lead123</div>
-            <div><strong>Intern:</strong> kavya@turn2law.in / temp123</div>
-          </div>
         </div>
       </div>
     </div>

@@ -60,9 +60,13 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose, onProfileOpen
     onMobileClose();
   };
 
-  const handleLogout = () => {
-    logout();
-    router.push('/login');
+  const handleLogout = async () => {
+    try {
+      await logout();
+      router.push('/login');
+    } catch (err) {
+      console.error('Error logging out:', err);
+    }
   };
 
   return (

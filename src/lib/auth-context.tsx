@@ -1,20 +1,23 @@
 'use client';
 // ============================================================
-// Turn2Law Intern Tracker — Auth Context
+// Turn2Law Intern Tracker — Auth Context (Supabase)
 // ============================================================
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { User } from './types';
-import { authenticateUser, updateUser, getUserById, initDataLayer } from './data-service';
+import { createClient } from '@/lib/supabase/client';
+import { Profile, UserRole } from './types';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 interface AuthContextType {
-  user: User | null;
+  user: Profile | null;
+  supabaseUser: SupabaseUser | null;
   loading: boolean;
   pendingReset: boolean;
-  login: (email: string, password: string) => { success: boolean; error?: string; mustReset?: boolean };
-  logout: () => void;
-  resetPassword: (newPassword: string) => boolean;
-  setUser: (user: User) => void;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string; mustReset?: boolean }>;
+  logout: () => Promise<void>;
+  resetPassword: (newPassword: string) => Promise<boolean>;
+  setUser: (user: Profile) => void;
+  refreshProfile: () => Promise<void>;
   isAdmin: boolean;
   isLead: boolean;
   isIntern: boolean;
@@ -23,105 +26,203 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<Profile | null>(null);
+  const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingReset, setPendingReset] = useState(false);
 
-  useEffect(() => {
-    // Initialize data layer
-    initDataLayer();
+  const supabase = createClient();
 
-    // Check for pending password reset first
-    const resetUserId = localStorage.getItem('reset_user_id');
-    if (resetUserId) {
-      setPendingReset(true);
-      setLoading(false);
-      return;
-    }
+  // Fetch user profile from profiles table
+  const fetchProfile = useCallback(async (userId: string): Promise<Profile | null> => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
 
-    // Check for existing session
-    const savedSession = localStorage.getItem('current_user');
-    if (savedSession) {
-      try {
-        const parsed: User = JSON.parse(savedSession);
-        // Re-verify user still exists and is active
-        const freshUser = getUserById(parsed.id);
-        if (freshUser && freshUser.status === 'active') {
-          // If user now needs to reset (admin toggled flag), force reset
-          if (freshUser.must_reset_password) {
-            localStorage.setItem('reset_user_id', freshUser.id);
-            localStorage.removeItem('current_user');
-            setPendingReset(true);
-          } else {
-            setUser(freshUser);
-          }
-        } else {
-          localStorage.removeItem('current_user');
-        }
-      } catch {
-        localStorage.removeItem('current_user');
+    if (error || !data) return null;
+    return data as Profile;
+  }, [supabase]);
+
+  // Refresh profile from database
+  const refreshProfile = useCallback(async () => {
+    if (!supabaseUser) return;
+    const profile = await fetchProfile(supabaseUser.id);
+    if (profile) {
+      setUser(profile);
+      if (profile.must_reset_password) {
+        setPendingReset(true);
       }
     }
-    setLoading(false);
-  }, []);
+  }, [supabaseUser, fetchProfile]);
 
-  const login = useCallback((email: string, password: string) => {
-    const authenticated = authenticateUser(email, password);
-    if (!authenticated) {
-      return { success: false, error: 'Invalid email or password' };
+  // Initialize: check existing session
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+
+        if (authUser) {
+          setSupabaseUser(authUser);
+          const profile = await fetchProfile(authUser.id);
+
+          if (profile) {
+            if (profile.status !== 'active') {
+              // User is deactivated — sign them out
+              await supabase.auth.signOut();
+              setUser(null);
+              setSupabaseUser(null);
+            } else if (profile.must_reset_password) {
+              setPendingReset(true);
+              setUser(profile); // Set user so reset page can access name
+            } else {
+              setUser(profile);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Auth init error:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initAuth();
+
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'SIGNED_IN' && session?.user) {
+          setSupabaseUser(session.user);
+          const profile = await fetchProfile(session.user.id);
+          if (profile) {
+            if (profile.must_reset_password) {
+              setPendingReset(true);
+              setUser(profile);
+            } else {
+              setUser(profile);
+            }
+          }
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null);
+          setSupabaseUser(null);
+          setPendingReset(false);
+        } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+          setSupabaseUser(session.user);
+        }
+      }
+    );
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const login = useCallback(async (email: string, password: string) => {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        return {
+          success: false,
+          error: error.message === 'Invalid login credentials'
+            ? 'Invalid email or password'
+            : error.message,
+        };
+      }
+
+      if (data.user) {
+        const profile = await fetchProfile(data.user.id);
+
+        if (!profile) {
+          return { success: false, error: 'Account profile not found. Contact your admin.' };
+        }
+
+        if (profile.status !== 'active') {
+          await supabase.auth.signOut();
+          return { success: false, error: 'Account is deactivated. Contact your admin.' };
+        }
+
+        if (profile.must_reset_password) {
+          setSupabaseUser(data.user);
+          setUser(profile);
+          setPendingReset(true);
+          return { success: true, mustReset: true };
+        }
+
+        setSupabaseUser(data.user);
+        setUser(profile);
+        return { success: true };
+      }
+
+      return { success: false, error: 'Login failed' };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Login failed',
+      };
     }
+  }, [supabase, fetchProfile]);
 
-    if (authenticated.status !== 'active') {
-      return { success: false, error: 'Account is deactivated. Contact your admin.' };
-    }
-
-    if (authenticated.must_reset_password) {
-      // Store user ID for password reset flow — do NOT grant full access
-      localStorage.setItem('reset_user_id', authenticated.id);
-      setPendingReset(true);
-      return { success: true, mustReset: true };
-    }
-
-    setUser(authenticated);
-    localStorage.setItem('current_user', JSON.stringify(authenticated));
-    return { success: true };
-  }, []);
-
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut();
     setUser(null);
+    setSupabaseUser(null);
     setPendingReset(false);
-    localStorage.removeItem('current_user');
-    localStorage.removeItem('reset_user_id');
-  }, []);
+  }, [supabase]);
 
-  const resetPassword = useCallback((newPassword: string) => {
-    const resetUserId = localStorage.getItem('reset_user_id');
-    if (!resetUserId) return false;
+  const resetPassword = useCallback(async (newPassword: string): Promise<boolean> => {
+    try {
+      // Update password in Supabase Auth
+      const { error: authError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
 
-    // updateUser will hash the password via data-service
-    const updated = updateUser(resetUserId, {
-      password: newPassword,
-      must_reset_password: false,
-    });
+      if (authError) {
+        console.error('Password update error:', authError);
+        return false;
+      }
 
-    if (updated) {
-      setUser(updated);
+      // Update must_reset_password flag in profiles
+      if (supabaseUser) {
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .update({ must_reset_password: false })
+          .eq('id', supabaseUser.id);
+
+        if (profileError) {
+          console.error('Profile update error:', profileError);
+          // Password was changed but flag wasn't cleared — still let them proceed
+        }
+
+        const profile = await fetchProfile(supabaseUser.id);
+        if (profile) {
+          setUser(profile);
+        }
+      }
+
       setPendingReset(false);
-      localStorage.setItem('current_user', JSON.stringify(updated));
-      localStorage.removeItem('reset_user_id');
       return true;
+    } catch (err) {
+      console.error('Reset password error:', err);
+      return false;
     }
-    return false;
-  }, []);
+  }, [supabase, supabaseUser, fetchProfile]);
 
   const value: AuthContextType = {
     user,
+    supabaseUser,
     loading,
     pendingReset,
     login,
     logout,
     resetPassword,
     setUser,
+    refreshProfile,
     isAdmin: user?.role === 'admin',
     isLead: user?.role === 'lead',
     isIntern: user?.role === 'intern',

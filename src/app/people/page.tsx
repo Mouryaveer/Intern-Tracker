@@ -1,29 +1,22 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import {
   getUsers,
   getTeams,
-  getUsersByTeam,
-  getTeamById,
-  getTasksByAssignee,
-  getStandupStreak,
+  getTasks,
 } from '@/lib/data-service';
-import { User, Team } from '@/lib/types';
+import { Profile, Team, Task } from '@/lib/types';
 import Avatar from '@/components/Avatar';
 import {
   Users,
   Search,
-  Filter,
   Mail,
   Calendar,
-  ClipboardList,
-  MessageSquareText,
-  Shield,
   Star,
-  UserCheck,
 } from 'lucide-react';
+import { subscribeToTable, unsubscribe } from '@/lib/realtime';
 
 function getInitials(name: string): string {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -40,11 +33,16 @@ function getAvatarColor(name: string): string {
 }
 
 // ── User Card ──
-function PersonCard({ person }: { person: User }) {
-  const team = person.team_id ? getTeamById(person.team_id) : null;
-  const tasks = getTasksByAssignee(person.id);
-  const completedTasks = tasks.filter(t => t.status === 'done').length;
-  const activeTasks = tasks.filter(t => t.status !== 'done').length;
+interface PersonCardProps {
+  person: Profile;
+  team: Team | undefined;
+  tasks: Task[];
+}
+
+function PersonCard({ person, team, tasks }: PersonCardProps) {
+  const personTasks = tasks.filter(t => t.assignee_id === person.id);
+  const completedTasks = personTasks.filter(t => t.status === 'done').length;
+  const activeTasks = personTasks.filter(t => t.status !== 'done').length;
 
   const roleBadgeClass = person.role === 'admin' ? 'badge-admin' : person.role === 'lead' ? 'badge-lead' : 'badge-intern';
 
@@ -62,17 +60,17 @@ function PersonCard({ person }: { person: User }) {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)', fontSize: 'var(--font-size-sm)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', color: 'var(--color-text-secondary)' }}>
-          <Mail size={14} />
-          <span>{person.email}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', color: 'var(--color-text-secondary)' }} className="truncate">
+          <Mail size={14} style={{ flexShrink: 0 }} />
+          <span className="truncate">{person.email}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', color: 'var(--color-text-secondary)' }}>
-          <Users size={14} />
+          <Users size={14} style={{ flexShrink: 0 }} />
           <span>{team?.name || 'No team'}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', color: 'var(--color-text-secondary)' }}>
-          <Calendar size={14} />
-          <span>Joined {new Date(person.join_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
+          <Calendar size={14} style={{ flexShrink: 0 }} />
+          <span>Joined {new Date(person.created_at || Date.now()).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
         </div>
       </div>
 
@@ -99,9 +97,13 @@ function PersonCard({ person }: { person: User }) {
 }
 
 // ── Team Card ──
-function TeamCard({ team }: { team: Team }) {
-  const members = getUsersByTeam(team.id);
-  const lead = team.lead_id ? getUsers().find(u => u.id === team.lead_id) : null;
+interface TeamCardProps {
+  team: Team;
+  members: Profile[];
+  lead: Profile | undefined;
+}
+
+function TeamCard({ team, members, lead }: TeamCardProps) {
   const interns = members.filter(m => m.role === 'intern');
 
   return (
@@ -179,16 +181,73 @@ export default function PeoplePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterRole, setFilterRole] = useState('all');
   const [filterTeam, setFilterTeam] = useState('all');
+  
+  const [allUsers, setAllUsers] = useState<Profile[]>([]);
+  const [allTeams, setAllTeams] = useState<Team[]>([]);
+  const [allTasks, setAllTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => { setMounted(true); }, []);
+  const loadData = useCallback(async () => {
+    try {
+      const [fetchedUsers, fetchedTeams, fetchedTasks] = await Promise.all([
+        getUsers(),
+        getTeams(),
+        getTasks(),
+      ]);
+      setAllUsers(fetchedUsers);
+      setAllTeams(fetchedTeams);
+      setAllTasks(fetchedTasks);
+    } catch (err) {
+      console.error('Error loading people page:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    setMounted(true);
+    loadData();
+
+    // Setup realtime subscriptions
+    const profilesChannel = subscribeToTable({
+      table: 'profiles',
+      callback: () => loadData(),
+    });
+    const teamsChannel = subscribeToTable({
+      table: 'teams',
+      callback: () => loadData(),
+    });
+    const tasksChannel = subscribeToTable({
+      table: 'tasks',
+      callback: () => loadData(),
+    });
+
+    return () => {
+      unsubscribe(profilesChannel);
+      unsubscribe(teamsChannel);
+      unsubscribe(tasksChannel);
+    };
+  }, [loadData]);
 
   if (!mounted || !user) return null;
 
-  const allUsers = getUsers().filter(u => u.status === 'active');
-  const teams = getTeams();
+  if (loading) {
+    return (
+      <div className="animate-slide-up" style={{ padding: 'var(--spacing-xl) 0' }}>
+        <div className="skeleton-pulse" style={{ height: 40, width: 200, background: 'var(--color-surface)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--spacing-xl)' }} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--spacing-base)' }}>
+          {[1, 2, 3].map(i => (
+            <div key={i} className="card skeleton-pulse" style={{ height: 200, border: 'none', background: 'var(--color-surface)' }} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const activeUsers = allUsers.filter(u => u.status === 'active');
 
   // Filter users
-  let filteredUsers = allUsers;
+  let filteredUsers = activeUsers;
   if (searchQuery) {
     filteredUsers = filteredUsers.filter(u =>
       u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -207,10 +266,10 @@ export default function PeoplePage() {
       {/* Tabs */}
       <div className="tabs">
         <button className={`tab ${activeTab === 'people' ? 'active' : ''}`} onClick={() => setActiveTab('people')}>
-          People ({allUsers.length})
+          People ({activeUsers.length})
         </button>
         <button className={`tab ${activeTab === 'teams' ? 'active' : ''}`} onClick={() => setActiveTab('teams')}>
-          Teams ({teams.length})
+          Teams ({allTeams.length})
         </button>
       </div>
 
@@ -236,15 +295,23 @@ export default function PeoplePage() {
             </select>
             <select className="form-select" style={{ width: 'auto', minWidth: 140 }} value={filterTeam} onChange={e => setFilterTeam(e.target.value)}>
               <option value="all">All Teams</option>
-              {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              {allTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </div>
 
           {/* People Grid */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--spacing-base)' }}>
-            {filteredUsers.map(person => (
-              <PersonCard key={person.id} person={person} />
-            ))}
+            {filteredUsers.map(person => {
+              const team = allTeams.find(t => t.id === person.team_id);
+              return (
+                <PersonCard 
+                  key={person.id} 
+                  person={person} 
+                  team={team} 
+                  tasks={allTasks}
+                />
+              );
+            })}
           </div>
 
           {filteredUsers.length === 0 && (
@@ -259,9 +326,18 @@ export default function PeoplePage() {
 
       {activeTab === 'teams' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--spacing-base)' }}>
-          {teams.map(team => (
-            <TeamCard key={team.id} team={team} />
-          ))}
+          {allTeams.map(team => {
+            const members = activeUsers.filter(u => u.team_id === team.id);
+            const lead = activeUsers.find(u => u.id === team.lead_id);
+            return (
+              <TeamCard 
+                key={team.id} 
+                team={team} 
+                members={members}
+                lead={lead}
+              />
+            );
+          })}
         </div>
       )}
     </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import {
@@ -13,10 +13,9 @@ import {
   getUsers,
   getUsersByTeam,
   getRecentActivities,
-  getUserById,
-  getTeamById,
+  getTeams,
 } from '@/lib/data-service';
-import { Task, TaskActivity } from '@/lib/types';
+import { Task, TaskActivity, Profile, Meeting, Standup, Team } from '@/lib/types';
 import {
   ClipboardList,
   CheckCircle2,
@@ -26,8 +25,8 @@ import {
   Calendar,
   ArrowRight,
   TrendingUp,
-  Users,
 } from 'lucide-react';
+import { subscribeToTable, unsubscribe } from '@/lib/realtime';
 
 function getInitials(name: string): string {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -51,42 +50,143 @@ function formatRelativeTime(dateStr: string): string {
 export default function DashboardPage() {
   const { user, isAdmin, isLead, isIntern } = useAuth();
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
+  
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [todayStandup, setTodayStandup] = useState<Standup | null>(null);
+  const [todayStandups, setTodayStandups] = useState<Standup[]>([]);
+  const [upcomingMeetings, setUpcomingMeetings] = useState<Meeting[]>([]);
+  const [recentActivities, setRecentActivities] = useState<TaskActivity[]>([]);
+  const [allUsers, setAllUsers] = useState<Profile[]>([]);
+  const [allTeams, setAllTeams] = useState<Team[]>([]);
+  const [teamMembers, setTeamMembers] = useState<Profile[]>([]);
+  
+  const [loading, setLoading] = useState(true);
+
+  const loadDashboardData = useCallback(async () => {
+    if (!user) return;
+    try {
+      // Parallel fetches for efficiency
+      const [
+        fetchedAllUsers,
+        fetchedAllTeams,
+        fetchedUpcomingMeetings,
+        fetchedRecentActivities,
+      ] = await Promise.all([
+        getUsers(),
+        getTeams(),
+        getUpcomingMeetings(),
+        getRecentActivities(8),
+      ]);
+
+      setAllUsers(fetchedAllUsers);
+      setAllTeams(fetchedAllTeams);
+      setUpcomingMeetings(fetchedUpcomingMeetings.slice(0, 3));
+      setRecentActivities(fetchedRecentActivities);
+
+      // Tasks scoping based on role
+      let scopedTasks: Task[] = [];
+      if (isAdmin) {
+        scopedTasks = await getTasks();
+      } else if (isLead && user.team_id) {
+        scopedTasks = await getTasksByTeam(user.team_id);
+      } else {
+        scopedTasks = await getTasksByAssignee(user.id);
+      }
+      setTasks(scopedTasks);
+
+      // Standups data
+      const today = new Date().toISOString().split('T')[0];
+      const [fetchedTodayStandup, fetchedTodayStandups] = await Promise.all([
+        getTodayStandup(user.id),
+        getStandupsByDate(today),
+      ]);
+      setTodayStandup(fetchedTodayStandup);
+      setTodayStandups(fetchedTodayStandups);
+
+      // Team members scoping
+      let members: Profile[] = [];
+      if (user.team_id) {
+        members = fetchedAllUsers.filter(u => u.team_id === user.team_id && u.role === 'intern');
+      } else {
+        members = fetchedAllUsers.filter(u => u.role === 'intern');
+      }
+      setTeamMembers(members);
+    } catch (err) {
+      console.error('Error loading dashboard data:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [user, isAdmin, isLead]);
 
   useEffect(() => {
-    setMounted(true);
-  }, []);
+    if (user) {
+      loadDashboardData();
 
-  if (!mounted || !user) return null;
+      // Subscribe to realtime updates
+      const tasksChannel = subscribeToTable({
+        table: 'tasks',
+        callback: () => loadDashboardData(),
+      });
+      const standupsChannel = subscribeToTable({
+        table: 'standups',
+        callback: () => loadDashboardData(),
+      });
+      const meetingsChannel = subscribeToTable({
+        table: 'meetings',
+        callback: () => loadDashboardData(),
+      });
+      const activityChannel = subscribeToTable({
+        table: 'task_activity',
+        callback: () => loadDashboardData(),
+      });
 
-  // Get data based on role
-  const allTasks = getTasks();
-  const myTasks = getTasksByAssignee(user.id);
-  const teamTasks = user.team_id ? getTasksByTeam(user.team_id) : allTasks;
-  const relevantTasks = isAdmin ? allTasks : isLead ? teamTasks : myTasks;
+      return () => {
+        unsubscribe(tasksChannel);
+        unsubscribe(standupsChannel);
+        unsubscribe(meetingsChannel);
+        unsubscribe(activityChannel);
+      };
+    }
+  }, [user, loadDashboardData]);
 
-  const todayStandup = getTodayStandup(user.id);
+  if (loading || !user) {
+    return (
+      <div className="animate-slide-up" style={{ padding: 'var(--spacing-xl) 0' }}>
+        {/* Skeleton Stats Grid */}
+        <div className="stats-grid" style={{ marginBottom: 'var(--spacing-xl)' }}>
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="stat-card skeleton-pulse" style={{ height: 100, border: 'none', background: 'var(--color-surface)' }} />
+          ))}
+        </div>
+        
+        {/* Skeleton Content Grid */}
+        <div className="grid-2" style={{ gap: 'var(--spacing-xl)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xl)' }}>
+            <div className="card skeleton-pulse" style={{ height: 120, border: 'none', background: 'var(--color-surface)' }} />
+            <div className="card skeleton-pulse" style={{ height: 350, border: 'none', background: 'var(--color-surface)' }} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xl)' }}>
+            <div className="card skeleton-pulse" style={{ height: 250, border: 'none', background: 'var(--color-surface)' }} />
+            <div className="card skeleton-pulse" style={{ height: 300, border: 'none', background: 'var(--color-surface)' }} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const today = new Date().toISOString().split('T')[0];
-  const todayStandups = getStandupsByDate(today);
-  const upcomingMeetings = getUpcomingMeetings().slice(0, 3);
-  const recentActivities = getRecentActivities(8);
-  const allUsers = getUsers();
 
-  // Stats
-  const openTasks = relevantTasks.filter(t => t.status !== 'done').length;
-  const completedTasks = relevantTasks.filter(t => t.status === 'done').length;
-  const inProgressTasks = relevantTasks.filter(t => t.status === 'in_progress').length;
-  const blockedTasks = relevantTasks.filter(t => t.status === 'blocked').length;
-  const overdueTasks = relevantTasks.filter(t => {
+  // Stats computation
+  const openTasks = tasks.filter(t => t.status !== 'done').length;
+  const completedTasks = tasks.filter(t => t.status === 'done').length;
+  const inProgressTasks = tasks.filter(t => t.status === 'in_progress').length;
+  const overdueTasks = tasks.filter(t => {
     if (t.status === 'done') return false;
     return t.due_date && new Date(t.due_date) < new Date(today);
   }).length;
 
   // Standup compliance
-  const teamMembers = user.team_id
-    ? getUsersByTeam(user.team_id).filter(u => u.role === 'intern')
-    : allUsers.filter(u => u.role === 'intern');
-  const submittedStandups = todayStandups.filter(s =>
+  const submittedStandupsCount = todayStandups.filter(s =>
     teamMembers.some(m => m.id === s.user_id)
   ).length;
 
@@ -104,7 +204,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="stat-card">
+        <div className="stat-card" onClick={() => router.push('/tasks')} style={{ cursor: 'pointer' }}>
           <div className="stat-icon success">
             <CheckCircle2 size={22} />
           </div>
@@ -114,7 +214,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="stat-card">
+        <div className="stat-card" onClick={() => router.push('/tasks')} style={{ cursor: 'pointer' }}>
           <div className="stat-icon warning">
             <Clock size={22} />
           </div>
@@ -125,7 +225,7 @@ export default function DashboardPage() {
         </div>
 
         {(isAdmin || isLead) && (
-          <div className="stat-card">
+          <div className="stat-card" onClick={() => router.push('/tasks')} style={{ cursor: 'pointer' }}>
             <div className="stat-icon danger">
               <AlertTriangle size={22} />
             </div>
@@ -139,7 +239,7 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <div className="grid-2" style={{ gap: 'var(--spacing-xl)' }}>
+      <div className="grid-2" style={{ gap: 'var(--spacing-xl)', marginTop: 'var(--spacing-xl)' }}>
         {/* Left Column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xl)' }}>
 
@@ -175,23 +275,23 @@ export default function DashboardPage() {
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-sm)' }}>
                   <span className="text-sm text-secondary">
-                    {submittedStandups} of {teamMembers.length} interns submitted
+                    {submittedStandupsCount} of {teamMembers.length} interns submitted
                   </span>
                   <span className="text-sm font-semibold">
-                    {teamMembers.length > 0 ? Math.round((submittedStandups / teamMembers.length) * 100) : 0}%
+                    {teamMembers.length > 0 ? Math.round((submittedStandupsCount / teamMembers.length) * 100) : 0}%
                   </span>
                 </div>
                 <div className="progress-bar">
                   <div
-                    className={`progress-bar-fill ${submittedStandups === teamMembers.length ? 'success' : 'warning'}`}
-                    style={{ width: `${teamMembers.length > 0 ? (submittedStandups / teamMembers.length) * 100 : 0}%` }}
+                    className={`progress-bar-fill ${submittedStandupsCount === teamMembers.length ? 'success' : 'warning'}`}
+                    style={{ width: `${teamMembers.length > 0 ? (submittedStandupsCount / teamMembers.length) * 100 : 0}%` }}
                   />
                 </div>
               </div>
             )}
           </div>
 
-          {/* My Tasks (for interns) / Team Overview */}
+          {/* Tasks Overview */}
           <div className="card">
             <div className="card-header">
               <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
@@ -203,14 +303,14 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            {relevantTasks.filter(t => t.status !== 'done').length === 0 ? (
+            {tasks.filter(t => t.status !== 'done').length === 0 ? (
               <div className="empty-state" style={{ padding: 'var(--spacing-xl)' }}>
                 <div className="empty-state-title">All caught up! 🎉</div>
                 <div className="empty-state-text">No open tasks right now.</div>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
-                {relevantTasks
+                {tasks
                   .filter(t => t.status !== 'done')
                   .sort((a, b) => {
                     const priorityOrder = { high: 0, medium: 1, low: 2 };
@@ -218,7 +318,6 @@ export default function DashboardPage() {
                   })
                   .slice(0, 5)
                   .map((task) => {
-                    const assignee = task.assignee_id ? getUserById(task.assignee_id) : null;
                     const isOverdue = task.due_date && new Date(task.due_date) < new Date(today) && task.status !== 'done';
                     return (
                       <div
@@ -283,7 +382,7 @@ export default function DashboardPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
                 {upcomingMeetings.map((meeting) => {
                   const date = new Date(meeting.scheduled_at);
-                  const team = meeting.team_id ? getTeamById(meeting.team_id) : null;
+                  const team = meeting.team_id ? allTeams.find(t => t.id === meeting.team_id) : null;
                   return (
                     <div
                       key={meeting.id}
@@ -340,8 +439,21 @@ export default function DashboardPage() {
 
             <div className="timeline">
               {recentActivities.slice(0, 6).map((activity) => {
-                const actUser = getUserById(activity.user_id);
-                const task = getTasks().find(t => t.id === activity.task_id);
+                const actUser = allUsers.find(u => u.id === activity.user_id);
+                // Note: task list in state is already scoped/filtered, but recent activity could refer to any task.
+                // However, since we fetch tasks for state, let's find the task title. Since tasks state is scoped,
+                // let's fetch activity tasks if they aren't in the list? Actually, tasks state in dashboard has the tasks assigned to/owned by the user.
+                // But for recent activity, we can just say "a task".
+                // Better: we can assume activity.action contains enough information or we display the task ID/generic name.
+                // Wait! Let's check `logTaskActivity` or how activity is shown. It says:
+                // task && <> &quot;{task.title}&quot;</>
+                // We don't have all tasks in the database fetched here if it's scoped, but wait!
+                // For admin it has all tasks. For lead/intern it has scoped tasks.
+                // Let's keep it simple: if task is not in tasks list, we can just display the activity message.
+                // Wait! In supabase schema, `task_activity` table does NOT have task title. Let's look up if we can display task.
+                // Wait, if needed we could fetch the tasks referenced in the activity. But most of the time they are in the scoped list.
+                // Let's just find task in the tasks array, or if it's missing, we show "task".
+                const task = tasks.find(t => t.id === activity.task_id);
                 return (
                   <div className="timeline-item" key={activity.id}>
                     <div className="timeline-dot" />
@@ -349,7 +461,7 @@ export default function DashboardPage() {
                       <div className="timeline-action">
                         <span style={{ color: 'var(--color-accent)' }}>{actUser?.name || 'Unknown'}</span>
                         {' '}{activity.action.toLowerCase()}
-                        {task && <> &quot;{task.title}&quot;</>}
+                        {task ? <> &quot;{task.title}&quot;</> : <> task</>}
                       </div>
                       {activity.from_status && activity.to_status && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)', marginTop: 2 }}>

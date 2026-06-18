@@ -1,64 +1,67 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import {
-  getMeetings,
   getUpcomingMeetings,
   getPastMeetings,
   createMeeting,
   getAttendanceByMeeting,
   markAttendance,
-  getUserById,
   getUsers,
-  getUsersByTeam,
   getTeams,
-  getTeamById,
 } from '@/lib/data-service';
-import { Meeting, Attendance, AttendanceStatus, ATTENDANCE_STATUS_CONFIG } from '@/lib/types';
+import { Meeting, Attendance, AttendanceStatus, ATTENDANCE_STATUS_CONFIG, Profile, Team } from '@/lib/types';
 import {
   Calendar,
   Plus,
   X,
   Clock,
-  MapPin,
   Users,
   CheckCircle2,
-  XCircle,
-  AlertCircle,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
 import { useIsMobile } from '@/lib/useIsMobile';
+import { subscribeToTable, unsubscribe } from '@/lib/realtime';
 
 function getInitials(name: string): string {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
 // ── Create Meeting Modal ──
-function CreateMeetingModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+interface CreateMeetingModalProps {
+  allTeams: Team[];
+  onClose: () => void;
+  onCreated: () => void;
+}
+
+function CreateMeetingModal({ allTeams, onClose, onCreated }: CreateMeetingModalProps) {
   const { user } = useAuth();
-  const teams = getTeams();
   const [title, setTitle] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
   const [teamId, setTeamId] = useState('');
   const [agenda, setAgenda] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
 
-    createMeeting({
-      title,
-      scheduled_at: new Date(scheduledAt).toISOString(),
-      team_id: teamId || null,
-      agenda,
-      notes_url: '',
-      created_by: user.id,
-    });
+    try {
+      await createMeeting({
+        title,
+        scheduled_at: new Date(scheduledAt).toISOString(),
+        team_id: teamId || null,
+        agenda,
+        notes_url: '',
+        created_by: user.id,
+      });
 
-    onCreated();
-    onClose();
+      onCreated();
+      onClose();
+    } catch (err) {
+      console.error('Error creating meeting:', err);
+    }
   };
 
   return (
@@ -83,7 +86,7 @@ function CreateMeetingModal({ onClose, onCreated }: { onClose: () => void; onCre
                 <label className="form-label">Team</label>
                 <select className="form-select" value={teamId} onChange={e => setTeamId(e.target.value)}>
                   <option value="">All Teams (Org-wide)</option>
-                  {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  {allTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
             </div>
@@ -103,24 +106,57 @@ function CreateMeetingModal({ onClose, onCreated }: { onClose: () => void; onCre
 }
 
 // ── Meeting Card ──
-function MeetingCard({ meeting, isPast }: { meeting: Meeting; isPast: boolean }) {
+interface MeetingCardProps {
+  meeting: Meeting;
+  isPast: boolean;
+  allUsers: Profile[];
+  allTeams: Team[];
+}
+
+function MeetingCard({ meeting, isPast, allUsers, allTeams }: MeetingCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [attendance, setAttendance] = useState<Attendance[]>([]);
   const { user, isAdmin, isLead } = useAuth();
   const { isMobile } = useIsMobile();
   const date = new Date(meeting.scheduled_at);
-  const team = meeting.team_id ? getTeamById(meeting.team_id) : null;
-  const creator = getUserById(meeting.created_by);
-  const attendance = getAttendanceByMeeting(meeting.id);
+  const team = meeting.team_id ? allTeams.find(t => t.id === meeting.team_id) : null;
 
-  // Get expected attendees
+  // Expected attendees based on team scoping
   const attendees = meeting.team_id
-    ? getUsersByTeam(meeting.team_id).filter(u => u.status === 'active')
-    : getUsers().filter(u => u.status === 'active');
+    ? allUsers.filter(u => u.team_id === meeting.team_id && u.role === 'intern' && u.status === 'active')
+    : allUsers.filter(u => u.role === 'intern' && u.status === 'active');
 
-  const handleMarkAttendance = (userId: string, status: AttendanceStatus) => {
-    markAttendance(meeting.id, userId, status);
-    // Force re-render
-    setExpanded(true);
+  const fetchAttendance = useCallback(async () => {
+    try {
+      const data = await getAttendanceByMeeting(meeting.id);
+      setAttendance(data);
+    } catch (err) {
+      console.error('Error fetching attendance for meeting:', err);
+    }
+  }, [meeting.id]);
+
+  useEffect(() => {
+    if (expanded) {
+      fetchAttendance();
+
+      // Subscribe to realtime attendance changes for this specific meeting
+      const channel = subscribeToTable({
+        table: 'attendance',
+        filter: `meeting_id=eq.${meeting.id}`,
+        callback: () => fetchAttendance(),
+      });
+
+      return () => unsubscribe(channel);
+    }
+  }, [expanded, fetchAttendance]);
+
+  const handleMarkAttendance = async (userId: string, status: AttendanceStatus) => {
+    try {
+      await markAttendance(meeting.id, userId, status);
+      await fetchAttendance();
+    } catch (err) {
+      console.error('Error marking attendance:', err);
+    }
   };
 
   const presentCount = attendance.filter(a => a.status === 'present').length;
@@ -356,25 +392,73 @@ export default function MeetingsPage() {
   const [mounted, setMounted] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
-  const [refreshKey, setRefreshKey] = useState(0);
+  
+  const [upcomingMeetings, setUpcomingMeetings] = useState<Meeting[]>([]);
+  const [pastMeetings, setPastMeetings] = useState<Meeting[]>([]);
+  const [allUsers, setAllUsers] = useState<Profile[]>([]);
+  const [allTeams, setAllTeams] = useState<Team[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => { setMounted(true); }, []);
+  const loadData = useCallback(async () => {
+    try {
+      const [fetchedUpcoming, fetchedPast, fetchedUsers, fetchedTeams] = await Promise.all([
+        getUpcomingMeetings(),
+        getPastMeetings(),
+        getUsers(),
+        getTeams(),
+      ]);
+      setUpcomingMeetings(fetchedUpcoming);
+      setPastMeetings(fetchedPast);
+      setAllUsers(fetchedUsers);
+      setAllTeams(fetchedTeams);
+    } catch (err) {
+      console.error('Error loading meetings data:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    setMounted(true);
+    loadData();
+
+    // Subscribe to meetings updates
+    const meetingsChannel = subscribeToTable({
+      table: 'meetings',
+      callback: () => loadData(),
+    });
+
+    return () => unsubscribe(meetingsChannel);
+  }, [loadData]);
 
   if (!mounted || !user) return null;
 
-  const upcoming = getUpcomingMeetings();
-  const past = getPastMeetings();
+  if (loading) {
+    return (
+      <div className="animate-slide-up" style={{ padding: 'var(--spacing-xl) 0' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--spacing-xl)' }}>
+          <div className="skeleton-pulse" style={{ height: 40, width: 250, background: 'var(--color-surface)', borderRadius: 'var(--radius-md)' }} />
+          <div className="skeleton-pulse" style={{ height: 40, width: 150, background: 'var(--color-surface)', borderRadius: 'var(--radius-md)' }} />
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-base)' }}>
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="card skeleton-pulse" style={{ height: 100, border: 'none', background: 'var(--color-surface)' }} />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="animate-slide-up">
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-xl)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-xl)', flexWrap: 'wrap', gap: 'var(--spacing-md)' }}>
         <div className="tabs" style={{ marginBottom: 0 }}>
           <button className={`tab ${activeTab === 'upcoming' ? 'active' : ''}`} onClick={() => setActiveTab('upcoming')}>
-            Upcoming ({upcoming.length})
+            Upcoming ({upcomingMeetings.length})
           </button>
           <button className={`tab ${activeTab === 'past' ? 'active' : ''}`} onClick={() => setActiveTab('past')}>
-            Past ({past.length})
+            Past ({pastMeetings.length})
           </button>
         </div>
         {(isAdmin || isLead) && (
@@ -385,34 +469,51 @@ export default function MeetingsPage() {
       </div>
 
       {/* Meetings List */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-base)' }} key={refreshKey}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-base)' }}>
         {activeTab === 'upcoming' && (
-          upcoming.length === 0 ? (
+          upcomingMeetings.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon"><Calendar size={28} /></div>
               <div className="empty-state-title">No upcoming meetings</div>
               <div className="empty-state-text">Schedule a meeting to get started.</div>
             </div>
           ) : (
-            upcoming.map(m => <MeetingCard key={m.id} meeting={m} isPast={false} />)
+            upcomingMeetings.map(m => (
+              <MeetingCard 
+                key={m.id} 
+                meeting={m} 
+                isPast={false} 
+                allUsers={allUsers}
+                allTeams={allTeams}
+              />
+            ))
           )
         )}
         {activeTab === 'past' && (
-          past.length === 0 ? (
+          pastMeetings.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon"><Calendar size={28} /></div>
               <div className="empty-state-title">No past meetings</div>
             </div>
           ) : (
-            past.map(m => <MeetingCard key={m.id} meeting={m} isPast={true} />)
+            pastMeetings.map(m => (
+              <MeetingCard 
+                key={m.id} 
+                meeting={m} 
+                isPast={true} 
+                allUsers={allUsers}
+                allTeams={allTeams}
+              />
+            ))
           )
         )}
       </div>
 
       {showCreateModal && (
         <CreateMeetingModal
+          allTeams={allTeams}
           onClose={() => setShowCreateModal(false)}
-          onCreated={() => setRefreshKey(k => k + 1)}
+          onCreated={loadData}
         />
       )}
     </div>

@@ -1,47 +1,26 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import {
   getUsers,
-  getUsersByTeam,
   getTeams,
   getUserPerformance,
   getTeamMetrics,
   getRecentActivities,
-  getUserById,
   getTasks,
-  getTeamById,
 } from '@/lib/data-service';
-import { PerformanceMetrics, TeamMetrics } from '@/lib/types';
+import { PerformanceMetrics, TeamMetrics, Profile, Team, TaskActivity, Task } from '@/lib/types';
 import Avatar from '@/components/Avatar';
 import {
-  BarChart3,
-  TrendingUp,
   Target,
   Flame,
   Trophy,
   Users,
-  ArrowRight,
   CheckCircle2,
-  Clock,
-  MessageSquareText,
 } from 'lucide-react';
 import { useIsMobile } from '@/lib/useIsMobile';
-
-function getInitials(name: string): string {
-  return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-}
-
-const AVATAR_COLORS = [
-  '#0B1F3A', '#C9952A', '#3B82F6', '#16A34A', '#DC2626',
-  '#8B5CF6', '#EC4899', '#14B8A6', '#F97316', '#6366F1',
-];
-
-function getAvatarColor(name: string): string {
-  const idx = name.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-  return AVATAR_COLORS[idx % AVATAR_COLORS.length];
-}
+import { subscribeToTable, unsubscribe } from '@/lib/realtime';
 
 // ── Metric Ring (Circular Progress) ──
 function MetricRing({ value, size = 60, color = 'var(--color-accent)' }: { value: number; size?: number; color?: string }) {
@@ -76,21 +55,25 @@ function MetricRing({ value, size = 60, color = 'var(--color-accent)' }: { value
 }
 
 // ── Intern Performance Card ──
-function InternPerformanceCard({ userId }: { userId: string }) {
-  const user = getUserById(userId);
-  const metrics = getUserPerformance(userId);
+interface InternPerformanceCardProps {
+  intern: Profile;
+  metrics: PerformanceMetrics | undefined;
+  teamName: string;
+}
+
+function InternPerformanceCard({ intern, metrics, teamName }: InternPerformanceCardProps) {
   const { isMobile } = useIsMobile();
 
-  if (!user) return null;
+  if (!metrics) return null;
 
   return (
     <div className="card" style={{ padding: 'var(--spacing-xl)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-lg)', flexWrap: 'wrap' }}>
-        <Avatar name={user.name} avatarUrl={user.avatar_url} size="lg" />
+        <Avatar name={intern.name} avatarUrl={intern.avatar_url} size="lg" />
         <div style={{ flex: 1, minWidth: 120 }}>
-          <div style={{ fontWeight: 600, fontSize: 'var(--font-size-md)' }}>{user.name}</div>
+          <div style={{ fontWeight: 600, fontSize: 'var(--font-size-md)' }}>{intern.name}</div>
           <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-            {user.team_id ? getTeamById(user.team_id)?.name : 'No team'}
+            {teamName}
           </div>
         </div>
         {metrics.standup_streak >= 3 && (
@@ -109,7 +92,7 @@ function InternPerformanceCard({ userId }: { userId: string }) {
               value={metrics.tasks_total > 0 ? (metrics.tasks_completed / metrics.tasks_total) * 100 : 0}
               color="var(--color-done)"
             />
-            <div style={{ position: 'absolute', fontSize: 'var(--font-size-sm)', fontWeight: 700, transform: 'rotate(0deg)' }}>
+            <div style={{ position: 'absolute', fontSize: 'var(--font-size-sm)', fontWeight: 700 }}>
               {metrics.tasks_completed}
             </div>
           </div>
@@ -128,7 +111,7 @@ function InternPerformanceCard({ userId }: { userId: string }) {
               value={metrics.on_time_rate}
               color={metrics.on_time_rate >= 80 ? 'var(--color-done)' : metrics.on_time_rate >= 50 ? 'var(--color-in-progress)' : 'var(--color-blocked)'}
             />
-            <div style={{ position: 'absolute', fontSize: 'var(--font-size-sm)', fontWeight: 700, transform: 'rotate(0deg)' }}>
+            <div style={{ position: 'absolute', fontSize: 'var(--font-size-sm)', fontWeight: 700 }}>
               {metrics.on_time_rate}%
             </div>
           </div>
@@ -144,7 +127,7 @@ function InternPerformanceCard({ userId }: { userId: string }) {
               value={Math.min(metrics.standup_streak * 10, 100)}
               color="var(--color-accent)"
             />
-            <div style={{ position: 'absolute', fontSize: 'var(--font-size-sm)', fontWeight: 700, transform: 'rotate(0deg)' }}>
+            <div style={{ position: 'absolute', fontSize: 'var(--font-size-sm)', fontWeight: 700 }}>
               {metrics.standup_streak}
             </div>
           </div>
@@ -172,13 +155,15 @@ function InternPerformanceCard({ userId }: { userId: string }) {
 }
 
 // ── Team Metrics Card ──
-function TeamMetricsCard({ teamId }: { teamId: string }) {
-  const team = getTeamById(teamId);
-  const metrics = getTeamMetrics(teamId);
-  const members = getUsersByTeam(teamId);
+interface TeamMetricsCardProps {
+  team: Team;
+  metrics: TeamMetrics | undefined;
+}
+
+function TeamMetricsCard({ team, metrics }: TeamMetricsCardProps) {
   const { isMobile } = useIsMobile();
 
-  if (!team) return null;
+  if (!metrics) return null;
 
   return (
     <div className="card" style={{ padding: 'var(--spacing-xl)' }}>
@@ -250,26 +235,138 @@ function TeamMetricsCard({ teamId }: { teamId: string }) {
 // ── Main Performance Page ──
 export default function PerformancePage() {
   const { user, isAdmin, isLead } = useAuth();
-  const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<'interns' | 'teams'>('interns');
+  
+  const [allUsers, setAllUsers] = useState<Profile[]>([]);
+  const [allTeams, setAllTeams] = useState<Team[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [recentActivities, setRecentActivities] = useState<TaskActivity[]>([]);
+  const [userPerformanceMap, setUserPerformanceMap] = useState<Record<string, PerformanceMetrics>>({});
+  const [teamMetricsMap, setTeamMetricsMap] = useState<Record<string, TeamMetrics>>({});
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => { setMounted(true); }, []);
+  const loadData = useCallback(async () => {
+    if (!user) return;
+    try {
+      const [fetchedUsers, fetchedTeams, fetchedTasks, fetchedActivities] = await Promise.all([
+        getUsers(),
+        getTeams(),
+        getTasks(),
+        getRecentActivities(10),
+      ]);
 
-  if (!mounted || !user) return null;
+      setAllUsers(fetchedUsers);
+      setAllTeams(fetchedTeams);
+      setTasks(fetchedTasks);
+      setRecentActivities(fetchedActivities);
 
-  const teams = getTeams();
-  const allUsers = getUsers().filter(u => u.status === 'active');
+      // Determine interns to calculate metrics for
+      const internsList = isAdmin
+        ? fetchedUsers.filter(u => u.role === 'intern')
+        : isLead && user.team_id
+          ? fetchedUsers.filter(u => u.team_id === user.team_id && u.role === 'intern')
+          : [user];
+
+      // Fetch user performances in parallel
+      const perfResults = await Promise.all(
+        internsList.map(async (intern) => {
+          const perf = await getUserPerformance(intern.id);
+          return { id: intern.id, perf };
+        })
+      );
+      const perfMap: Record<string, PerformanceMetrics> = {};
+      perfResults.forEach(r => { perfMap[r.id] = r.perf; });
+      setUserPerformanceMap(perfMap);
+
+      // Fetch team metrics in parallel
+      const teamResults = await Promise.all(
+        fetchedTeams.map(async (team) => {
+          const metrics = await getTeamMetrics(team.id);
+          return { id: team.id, metrics };
+        })
+      );
+      const teamMap: Record<string, TeamMetrics> = {};
+      teamResults.forEach(r => { teamMap[r.id] = r.metrics; });
+      setTeamMetricsMap(teamMap);
+
+    } catch (err) {
+      console.error('Error loading performance data:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [user, isAdmin, isLead]);
+
+  useEffect(() => {
+    loadData();
+
+    // Subscribe to realtime updates
+    const tasksChannel = subscribeToTable({
+      table: 'tasks',
+      callback: () => loadData(),
+    });
+    const standupsChannel = subscribeToTable({
+      table: 'standups',
+      callback: () => loadData(),
+    });
+    const profilesChannel = subscribeToTable({
+      table: 'profiles',
+      callback: () => loadData(),
+    });
+    const activityChannel = subscribeToTable({
+      table: 'task_activity',
+      callback: () => loadData(),
+    });
+
+    return () => {
+      unsubscribe(tasksChannel);
+      unsubscribe(standupsChannel);
+      unsubscribe(profilesChannel);
+      unsubscribe(activityChannel);
+    };
+  }, [loadData]);
+
+  if (!user) return null;
+
+  if (loading) {
+    return (
+      <div className="animate-slide-up" style={{ padding: 'var(--spacing-xl) 0' }}>
+        <div className="stats-grid" style={{ marginBottom: 'var(--spacing-xl)' }}>
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="stat-card skeleton-pulse" style={{ height: 100, border: 'none', background: 'var(--color-surface)' }} />
+          ))}
+        </div>
+        <div className="skeleton-pulse" style={{ height: 40, width: 300, background: 'var(--color-surface)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--spacing-xl)' }} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--spacing-base)' }}>
+          {[1, 2, 3].map(i => (
+            <div key={i} className="card skeleton-pulse" style={{ height: 200, border: 'none', background: 'var(--color-surface)' }} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Active interns
   const interns = isAdmin
-    ? allUsers.filter(u => u.role === 'intern')
+    ? allUsers.filter(u => u.role === 'intern' && u.status === 'active')
     : isLead && user.team_id
-      ? getUsersByTeam(user.team_id).filter(u => u.role === 'intern')
+      ? allUsers.filter(u => u.team_id === user.team_id && u.role === 'intern' && u.status === 'active')
       : [user];
 
-  // Top performers (by tasks completed)
+  // Top performers
   const internMetrics = interns.map(intern => ({
     user: intern,
-    metrics: getUserPerformance(intern.id),
-  })).sort((a, b) => b.metrics.tasks_completed - a.metrics.tasks_completed);
+    metrics: userPerformanceMap[intern.id],
+  }))
+  .filter(item => item.metrics !== undefined)
+  .sort((a, b) => b.metrics.tasks_completed - a.metrics.tasks_completed);
+
+  const avgOnTimeRate = internMetrics.length > 0 
+    ? Math.round(internMetrics.reduce((acc, m) => acc + m.metrics.on_time_rate, 0) / internMetrics.length) 
+    : 0;
+
+  const bestStreak = internMetrics.length > 0 
+    ? Math.max(...internMetrics.map(m => m.metrics.standup_streak)) 
+    : 0;
 
   return (
     <div className="animate-slide-up">
@@ -281,7 +378,7 @@ export default function PerformancePage() {
           </div>
           <div>
             <div className="stat-value">
-              {getTasks().filter(t => t.status === 'done').length}
+              {tasks.filter(t => t.status === 'done').length}
             </div>
             <div className="stat-label">Total Completed</div>
           </div>
@@ -292,7 +389,7 @@ export default function PerformancePage() {
           </div>
           <div>
             <div className="stat-value">
-              {internMetrics.length > 0 ? Math.round(internMetrics.reduce((acc, m) => acc + m.metrics.on_time_rate, 0) / internMetrics.length) : 0}%
+              {avgOnTimeRate}%
             </div>
             <div className="stat-label">Avg On-Time Rate</div>
           </div>
@@ -303,7 +400,7 @@ export default function PerformancePage() {
           </div>
           <div>
             <div className="stat-value">
-              {internMetrics.length > 0 ? Math.max(...internMetrics.map(m => m.metrics.standup_streak)) : 0}
+              {bestStreak}
             </div>
             <div className="stat-label">Best Streak</div>
           </div>
@@ -335,16 +432,28 @@ export default function PerformancePage() {
 
       {activeTab === 'interns' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--spacing-base)' }}>
-          {interns.map(intern => (
-            <InternPerformanceCard key={intern.id} userId={intern.id} />
-          ))}
+          {interns.map(intern => {
+            const team = allTeams.find(t => t.id === intern.team_id);
+            return (
+              <InternPerformanceCard 
+                key={intern.id} 
+                intern={intern} 
+                metrics={userPerformanceMap[intern.id]}
+                teamName={team ? team.name : 'No team'}
+              />
+            );
+          })}
         </div>
       )}
 
       {activeTab === 'teams' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--spacing-base)' }}>
-          {teams.map(team => (
-            <TeamMetricsCard key={team.id} teamId={team.id} />
+          {allTeams.map(team => (
+            <TeamMetricsCard 
+              key={team.id} 
+              team={team} 
+              metrics={teamMetricsMap[team.id]} 
+            />
           ))}
         </div>
       )}
@@ -356,9 +465,9 @@ export default function PerformancePage() {
         </h3>
         <div className="card" style={{ padding: 'var(--spacing-xl)' }}>
           <div className="timeline">
-            {getRecentActivities(10).map((activity) => {
-              const actUser = getUserById(activity.user_id);
-              const task = getTasks().find(t => t.id === activity.task_id);
+            {recentActivities.map((activity) => {
+              const actUser = allUsers.find(u => u.id === activity.user_id);
+              const task = tasks.find(t => t.id === activity.task_id);
               return (
                 <div className="timeline-item" key={activity.id}>
                   <div className="timeline-dot" />
@@ -366,7 +475,11 @@ export default function PerformancePage() {
                     <div className="timeline-action">
                       <span style={{ color: 'var(--color-accent)', fontWeight: 600 }}>{actUser?.name || 'Unknown'}</span>
                       {' '}{activity.action.toLowerCase()}
-                      {task && <> &quot;<span style={{ fontWeight: 500 }}>{task.title}</span>&quot;</>}
+                      {task ? (
+                        <> &quot;<span style={{ fontWeight: 500 }}>{task.title}</span>&quot;</>
+                      ) : (
+                        <> task</>
+                      )}
                     </div>
                     <div className="timeline-meta">
                       {new Date(activity.created_at).toLocaleString('en-US', {

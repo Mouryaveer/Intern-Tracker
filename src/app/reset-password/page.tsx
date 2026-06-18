@@ -18,29 +18,26 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const { pendingReset, resetPassword, user } = useAuth();
+  const { pendingReset, resetPassword, user, loading: authLoading } = useAuth();
 
   // If user is already logged in and doesn't need reset, go to dashboard
   useEffect(() => {
-    if (user && !pendingReset) {
+    if (user && !pendingReset && !authLoading) {
       router.replace('/dashboard');
     }
-  }, [user, pendingReset, router]);
+  }, [user, pendingReset, authLoading, router]);
 
   // If no pending reset and no user, redirect to login
   useEffect(() => {
-    if (!pendingReset && !user) {
-      const hasResetId = typeof window !== 'undefined' && localStorage.getItem('reset_user_id');
-      if (!hasResetId) {
-        router.replace('/login');
-      }
+    if (!pendingReset && !user && !authLoading) {
+      router.replace('/login');
     }
-  }, [pendingReset, user, router]);
+  }, [pendingReset, user, authLoading, router]);
 
   const allRulesPassed = PASSWORD_RULES.every(rule => rule.test(newPassword));
   const passwordsMatch = newPassword === confirmPassword && confirmPassword.length > 0;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -55,15 +52,18 @@ export default function ResetPasswordPage() {
     }
 
     setLoading(true);
-    setTimeout(() => {
-      const success = resetPassword(newPassword);
+    try {
+      const success = await resetPassword(newPassword);
       if (success) {
         router.push('/dashboard');
       } else {
         setError('Failed to reset password. Please try logging in again.');
         setLoading(false);
       }
-    }, 500);
+    } catch (err) {
+      setError('An unexpected error occurred. Please try again.');
+      setLoading(false);
+    }
   };
 
   return (

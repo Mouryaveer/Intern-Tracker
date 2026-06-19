@@ -439,125 +439,37 @@ export async function markAttendance(
 
 export async function getUserPerformance(userId: string): Promise<PerformanceMetrics> {
   const supabase = getSupabase();
-
-  // Fetch user's tasks
-  const { data: tasks } = await supabase
-    .from('tasks')
-    .select('*')
-    .eq('assignee_id', userId);
-
-  const userTasks = (tasks || []) as Task[];
-  const completed = userTasks.filter(t => t.status === 'done');
-  const onTime = completed.filter(t => {
-    if (!t.due_date || !t.completed_at) return true;
-    return new Date(t.completed_at) <= new Date(t.due_date + 'T23:59:59');
-  });
-
-  // Fetch user's standups
-  const { data: standups } = await supabase
-    .from('standups')
-    .select('date')
-    .eq('user_id', userId)
-    .order('date', { ascending: false });
-
-  const userStandups = (standups || []) as { date: string }[];
-
-  // Calculate standup streak
-  let streak = 0;
-  const today = new Date();
-  const checkDate = new Date(today);
-
-  for (let i = 0; i < 60; i++) {
-    const dateStr = checkDate.toISOString().split('T')[0];
-    const dayOfWeek = checkDate.getDay();
-
-    // Skip weekends
-    if (dayOfWeek === 0 || dayOfWeek === 6) {
-      checkDate.setDate(checkDate.getDate() - 1);
-      continue;
-    }
-
-    if (userStandups.some(s => s.date === dateStr)) {
-      streak++;
-      checkDate.setDate(checkDate.getDate() - 1);
-    } else {
-      // Today might not have a standup yet
-      if (i === 0) {
-        checkDate.setDate(checkDate.getDate() - 1);
-        continue;
-      }
-      break;
-    }
+  const { data, error } = await supabase.rpc('get_user_performance_metrics', { p_user_id: userId });
+  if (error) {
+    console.error('Error fetching user performance:', error);
+    // Return empty fallback instead of throwing to prevent dashboard crash
+    return {
+      user_id: userId,
+      tasks_completed: 0,
+      tasks_total: 0,
+      on_time_rate: 100,
+      standup_streak: 0,
+      standups_submitted: 0,
+      standups_expected: 0,
+      attendance_rate: 100,
+    };
   }
-
-  // Fetch attendance
-  const { data: attendanceData } = await supabase
-    .from('attendance')
-    .select('status')
-    .eq('user_id', userId);
-
-  const attendance = (attendanceData || []) as { status: AttendanceStatus }[];
-  const totalMeetings = attendance.length;
-  const present = attendance.filter(a => a.status === 'present' || a.status === 'late').length;
-
-  return {
-    user_id: userId,
-    tasks_completed: completed.length,
-    tasks_total: userTasks.length,
-    on_time_rate: completed.length > 0 ? Math.round((onTime.length / completed.length) * 100) : 100,
-    standup_streak: streak,
-    standups_submitted: userStandups.length,
-    standups_expected: 0, // Computed if needed
-    attendance_rate: totalMeetings > 0 ? Math.round((present / totalMeetings) * 100) : 100,
-  };
+  return data as PerformanceMetrics;
 }
 
 export async function getTeamMetrics(teamId: string): Promise<TeamMetrics> {
   const supabase = getSupabase();
-
-  // Get team tasks
-  const { data: tasks } = await supabase
-    .from('tasks')
-    .select('*')
-    .eq('team_id', teamId);
-
-  const teamTasks = (tasks || []) as Task[];
-  const completed = teamTasks.filter(t => t.status === 'done');
-
-  // Get active members
-  const { data: members } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('team_id', teamId)
-    .eq('status', 'active');
-
-  const activeMembers = (members || []).length;
-
-  // Standup compliance (today)
-  const today = new Date().toISOString().split('T')[0];
-  const { data: todayStandups } = await supabase
-    .from('standups')
-    .select('user_id')
-    .eq('date', today);
-
-  const internMembers = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('team_id', teamId)
-    .eq('role', 'intern')
-    .eq('status', 'active');
-
-  const totalInterns = (internMembers.data || []).length;
-  const standupsToday = (todayStandups || []).filter(s =>
-    (internMembers.data || []).some(m => m.id === s.user_id)
-  ).length;
-
-  return {
-    team_id: teamId,
-    total_tasks: teamTasks.length,
-    completed_tasks: completed.length,
-    completion_rate: teamTasks.length > 0 ? Math.round((completed.length / teamTasks.length) * 100) : 0,
-    active_members: activeMembers,
-    standup_compliance: totalInterns > 0 ? Math.round((standupsToday / totalInterns) * 100) : 100,
-  };
+  const { data, error } = await supabase.rpc('get_team_performance_metrics', { p_team_id: teamId });
+  if (error) {
+    console.error('Error fetching team performance:', error);
+    return {
+      team_id: teamId,
+      total_tasks: 0,
+      completed_tasks: 0,
+      completion_rate: 0,
+      active_members: 0,
+      standup_compliance: 100,
+    };
+  }
+  return data as TeamMetrics;
 }

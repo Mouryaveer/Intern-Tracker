@@ -133,7 +133,7 @@ function UserFormModal({ editUser, allTeams, onClose, onSaved }: UserFormModalPr
               <label className="form-label">Email *</label>
               <input type="email" className="form-input" value={email} onChange={e => setEmail(e.target.value)} required placeholder="name@turn2law.in" />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-base)' }}>
+            <div className="grid-2">
               <div className="form-group">
                 <label className="form-label">Role *</label>
                 <select className="form-select" value={role} onChange={e => setRole(e.target.value as UserRole)}>

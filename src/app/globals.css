@@ -262,7 +262,7 @@ h4 { font-size: var(--font-size-lg); }
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  padding: var(--spacing-xl);
+  padding: var(--spacing-base);
   box-shadow: var(--shadow-sm);
   transition: all var(--transition-base);
 }
@@ -652,7 +652,7 @@ h4 { font-size: var(--font-size-lg); }
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  padding: var(--spacing-xl);
+  padding: var(--spacing-base);
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-base);
@@ -1059,7 +1059,7 @@ tbody tr:hover {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  padding: var(--spacing-xl);
+  padding: var(--spacing-base);
   transition: all var(--transition-base);
 }
 
@@ -1431,6 +1431,20 @@ tbody tr:hover {
 }
 
 @media (max-width: 768px) {
+  :root {
+    --spacing-xl: 1rem;
+    --spacing-2xl: 1.25rem;
+    --font-size-3xl: 1.5rem;
+    --font-size-2xl: 1.25rem;
+    --font-size-xl: 1.125rem;
+    --font-size-lg: 1rem;
+    --topbar-height: 56px;
+  }
+
+  .card, .stat-card, .standup-card, .task-card {
+    padding: var(--spacing-md) !important;
+  }
+
   .sidebar {
     transform: translateX(-100%);
   }

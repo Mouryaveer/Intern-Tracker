@@ -44,11 +44,12 @@ interface TaskCardProps {
   onDragStart?: (e: React.DragEvent) => void;
   onDragEnd?: (e: React.DragEvent) => void;
   onAssign?: (e: React.MouseEvent) => void;
+  onStatusChange?: (taskId: string, newStatus: TaskStatus) => void;
   isMobile?: boolean;
   canAssign?: boolean;
 }
 
-function TaskCard({ task, allUsers, onClick, onDragStart, onDragEnd, onAssign, isMobile = false, canAssign = false }: TaskCardProps) {
+function TaskCard({ task, allUsers, onClick, onDragStart, onDragEnd, onAssign, onStatusChange, isMobile = false, canAssign = false }: TaskCardProps) {
   const assignee = task.assignee_id ? allUsers.find(u => u.id === task.assignee_id) : null;
   const today = new Date().toISOString().split('T')[0];
   const isOverdue = task.due_date && new Date(task.due_date) < new Date(today) && task.status !== 'done';
@@ -77,7 +78,25 @@ function TaskCard({ task, allUsers, onClick, onDragStart, onDragEnd, onAssign, i
             </div>
           )}
         </div>
-        <div className="task-card-title" style={{ marginBottom: 0, fontSize: 'var(--font-size-sm)' }}>{task.title}</div>
+        <div className="task-card-title" style={{ marginBottom: 'var(--spacing-sm)', fontSize: 'var(--font-size-sm)' }}>{task.title}</div>
+        
+        {/* Mobile Status Dropdown */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <select 
+            className="form-select" 
+            style={{ padding: '4px 8px', fontSize: 'var(--font-size-xs)', width: 'auto' }}
+            value={task.status}
+            onChange={(e) => {
+              e.stopPropagation();
+              if (onStatusChange) onStatusChange(task.id, e.target.value as TaskStatus);
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {COLUMNS.map(s => (
+              <option key={s} value={s}>{TASK_STATUS_CONFIG[s].label}</option>
+            ))}
+          </select>
+        </div>
       </div>
     );
   }
@@ -344,7 +363,7 @@ function CreateTaskModal({ allUsers, allTeams, onClose, onCreated }: CreateTaskM
               <label className="form-label">Acceptance Criteria *</label>
               <textarea className="form-textarea" value={acceptanceCriteria} onChange={e => setAcceptanceCriteria(e.target.value)} required placeholder="What does 'done' look like? List the criteria..." rows={3} />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-base)' }}>
+            <div className="grid-2">
               <div className="form-group">
                 <label className="form-label">Priority</label>
                 <select className="form-select" value={priority} onChange={e => setPriority(e.target.value as TaskPriority)}>
@@ -358,7 +377,7 @@ function CreateTaskModal({ allUsers, allTeams, onClose, onCreated }: CreateTaskM
                 <input type="date" className="form-input" value={dueDate} onChange={e => setDueDate(e.target.value)} />
               </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-base)' }}>
+            <div className="grid-2">
               <div className="form-group">
                 <label className="form-label">Team</label>
                 <select className="form-select" value={teamId} onChange={e => setTeamId(e.target.value)}>
@@ -547,7 +566,7 @@ function TaskDetailDrawer({ task, allUsers, onClose, onUpdated }: TaskDetailDraw
                 <label className="form-label">Acceptance Criteria</label>
                 <textarea className="form-textarea" value={editCriteria} onChange={e => setEditCriteria(e.target.value)} rows={4} />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-base)' }}>
+              <div className="grid-2">
                 <div className="form-group">
                   <label className="form-label">Priority</label>
                   <select className="form-select" value={editPriority} onChange={e => setEditPriority(e.target.value as TaskPriority)}>
@@ -943,10 +962,18 @@ export default function TaskBoardPage() {
                         key={task.id}
                         task={task}
                         allUsers={allUsers}
-                      onClick={() => setSelectedTask(task)}
-                      onDragStart={() => {}}
-                      onDragEnd={() => {}}
-                      isMobile={true}
+                        onClick={() => setSelectedTask(task)}
+                        onDragStart={() => {}}
+                        onDragEnd={() => {}}
+                        isMobile={true}
+                        onStatusChange={async (taskId, newStatus) => {
+                          try {
+                            await updateTask(taskId, { status: newStatus });
+                            await loadData();
+                          } catch (err) {
+                            console.error('Error updating status:', err);
+                          }
+                        }}
                       />
                     ))}
                     {columnTasks.length === 0 && (

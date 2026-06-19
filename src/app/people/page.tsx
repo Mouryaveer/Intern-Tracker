@@ -50,19 +50,19 @@ function PersonCard({ person, team, tasks }: PersonCardProps) {
   const roleBadgeClass = person.role === 'admin' ? 'badge-admin' : person.role === 'lead' ? 'badge-lead' : 'badge-intern';
 
   return (
-    <div className="card" style={{ padding: 'var(--spacing-xl)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-lg)' }}>
-        <Avatar name={person.name} avatarUrl={person.avatar_url} size="lg" />
+    <div className="card" style={{ padding: 'var(--spacing-base)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)' }}>
+        <Avatar name={person.name} avatarUrl={person.avatar_url} size="md" />
         <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 600, fontSize: 'var(--font-size-md)' }}>{person.name}</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', marginTop: 4 }}>
-            <span className={`badge ${roleBadgeClass}`}>{person.role}</span>
-            {person.status === 'inactive' && <span className="badge badge-blocked">Inactive</span>}
+          <div style={{ fontWeight: 600, fontSize: 'var(--font-size-base)' }}>{person.name}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', marginTop: 2 }}>
+            <span className={`badge ${roleBadgeClass}`} style={{ fontSize: '10px', padding: '1px 6px' }}>{person.role}</span>
+            {person.status === 'inactive' && <span className="badge badge-blocked" style={{ fontSize: '10px', padding: '1px 6px' }}>Inactive</span>}
           </div>
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)', fontSize: 'var(--font-size-sm)' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-sm)', fontSize: 'var(--font-size-xs)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', color: 'var(--color-text-secondary)' }} className="truncate">
           <Mail size={14} style={{ flexShrink: 0 }} />
           <span className="truncate">{person.email}</span>
@@ -81,17 +81,17 @@ function PersonCard({ person, team, tasks }: PersonCardProps) {
         <div style={{
           display: 'flex',
           gap: 'var(--spacing-base)',
-          marginTop: 'var(--spacing-lg)',
-          paddingTop: 'var(--spacing-md)',
+          marginTop: 'var(--spacing-md)',
+          paddingTop: 'var(--spacing-sm)',
           borderTop: '1px solid var(--color-border-light)',
         }}>
           <div style={{ flex: 1, textAlign: 'center' }}>
-            <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700 }}>{activeTasks}</div>
-            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>Active</div>
+            <div style={{ fontSize: 'var(--font-size-md)', fontWeight: 700 }}>{activeTasks}</div>
+            <div style={{ fontSize: '9px', color: 'var(--color-text-tertiary)', textTransform: 'uppercase' }}>Active</div>
           </div>
           <div style={{ flex: 1, textAlign: 'center' }}>
-            <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-done)' }}>{completedTasks}</div>
-            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>Done</div>
+            <div style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-done)' }}>{completedTasks}</div>
+            <div style={{ fontSize: '9px', color: 'var(--color-text-tertiary)', textTransform: 'uppercase' }}>Done</div>
           </div>
         </div>
       )}
@@ -110,11 +110,11 @@ function TeamCard({ team, members, lead }: TeamCardProps) {
   const interns = members.filter(m => m.role === 'intern');
 
   return (
-    <div className="card" style={{ padding: 'var(--spacing-xl)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-lg)' }}>
+    <div className="card" style={{ padding: 'var(--spacing-base)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)' }}>
         <div style={{
-          width: 44,
-          height: 44,
+          width: 36,
+          height: 36,
           borderRadius: 'var(--radius-md)',
           background: 'var(--color-accent-bg)',
           display: 'flex',
@@ -122,12 +122,12 @@ function TeamCard({ team, members, lead }: TeamCardProps) {
           justifyContent: 'center',
           color: 'var(--color-accent)',
           fontWeight: 800,
-          fontSize: 'var(--font-size-lg)',
+          fontSize: 'var(--font-size-md)',
         }}>
           {team.name.charAt(0)}
         </div>
         <div>
-          <div style={{ fontWeight: 600, fontSize: 'var(--font-size-md)' }}>{team.name}</div>
+          <div style={{ fontWeight: 600, fontSize: 'var(--font-size-base)' }}>{team.name}</div>
           <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
             {team.description}
           </div>
@@ -138,19 +138,19 @@ function TeamCard({ team, members, lead }: TeamCardProps) {
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 'var(--spacing-sm)',
-          marginBottom: 'var(--spacing-md)',
-          padding: 'var(--spacing-sm) var(--spacing-md)',
+          gap: 'var(--spacing-xs)',
+          marginBottom: 'var(--spacing-sm)',
+          padding: '4px 8px',
           background: 'var(--color-accent-bg)',
           borderRadius: 'var(--radius-md)',
-          fontSize: 'var(--font-size-sm)',
+          fontSize: 'var(--font-size-xs)',
         }}>
-          <Star size={14} style={{ color: 'var(--color-accent)' }} />
+          <Star size={12} style={{ color: 'var(--color-accent)' }} />
           <span style={{ fontWeight: 500 }}>Lead: {lead.name}</span>
         </div>
       )}
 
-      <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-md)' }}>
+      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-sm)' }}>
         {members.length} members · {interns.length} interns
       </div>
 

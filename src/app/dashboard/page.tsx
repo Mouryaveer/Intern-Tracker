@@ -299,7 +299,7 @@ export default function DashboardPage() {
             </div>
 
             {tasks.filter(t => t.status !== 'done').length === 0 ? (
-              <div className="empty-state" style={{ padding: 'var(--spacing-xl)' }}>
+              <div className="empty-state" style={{ padding: 'var(--spacing-base)' }}>
                 <div className="empty-state-title">All caught up! 🎉</div>
                 <div className="empty-state-text">No open tasks right now.</div>
               </div>
@@ -370,7 +370,7 @@ export default function DashboardPage() {
             </div>
 
             {upcomingMeetings.length === 0 ? (
-              <div className="empty-state" style={{ padding: 'var(--spacing-xl)' }}>
+              <div className="empty-state" style={{ padding: 'var(--spacing-base)' }}>
                 <div className="empty-state-title">No upcoming meetings</div>
               </div>
             ) : (

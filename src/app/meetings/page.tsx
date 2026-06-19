@@ -76,7 +76,7 @@ function CreateMeetingModal({ allTeams, onClose, onCreated }: CreateMeetingModal
               <label className="form-label">Meeting Title *</label>
               <input className="form-input" value={title} onChange={e => setTitle(e.target.value)} required placeholder="e.g., Weekly Squad Sync" />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-base)' }}>
+            <div className="grid-2">
               <div className="form-group">
                 <label className="form-label">Date & Time *</label>
                 <input type="datetime-local" className="form-input" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)} required />
@@ -163,7 +163,7 @@ function MeetingCard({ meeting, isPast, allUsers, allTeams }: MeetingCardProps) 
   const absentCount = attendance.filter(a => a.status === 'absent').length;
 
   return (
-    <div className="card" style={{ padding: 'var(--spacing-xl)' }}>
+    <div className="card" style={{ padding: 'var(--spacing-base)' }}>
       <div
         style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--spacing-md)', cursor: 'pointer' }}
         onClick={() => setExpanded(!expanded)}

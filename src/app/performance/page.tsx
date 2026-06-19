@@ -66,7 +66,7 @@ function InternPerformanceCard({ intern, metrics, teamName }: InternPerformanceC
   if (!metrics) return null;
 
   return (
-    <div className="card" style={{ padding: 'var(--spacing-xl)' }}>
+    <div className="card" style={{ padding: 'var(--spacing-base)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-lg)', flexWrap: 'wrap' }}>
         <Avatar name={intern.name} avatarUrl={intern.avatar_url} size="lg" />
         <div style={{ flex: 1, minWidth: 120 }}>
@@ -83,7 +83,7 @@ function InternPerformanceCard({ intern, metrics, teamName }: InternPerformanceC
       </div>
 
       {/* Metrics Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: isMobile ? 'var(--spacing-lg)' : 'var(--spacing-md)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--spacing-md)' }}>
         {/* Tasks Completed */}
         <div style={{ textAlign: 'center' }}>
           <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -165,7 +165,7 @@ function TeamMetricsCard({ team, metrics }: TeamMetricsCardProps) {
   if (!metrics) return null;
 
   return (
-    <div className="card" style={{ padding: 'var(--spacing-xl)' }}>
+    <div className="card" style={{ padding: 'var(--spacing-base)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-lg)' }}>
         <div style={{
           width: 44,
@@ -189,7 +189,7 @@ function TeamMetricsCard({ team, metrics }: TeamMetricsCardProps) {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--spacing-base)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-base)' }}>
         <div>
           <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-done)' }}>
             {metrics.completion_rate}%
@@ -462,7 +462,7 @@ export default function PerformancePage() {
         <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, marginBottom: 'var(--spacing-base)' }}>
           Recent Contributions
         </h3>
-        <div className="card" style={{ padding: 'var(--spacing-xl)' }}>
+        <div className="card" style={{ padding: 'var(--spacing-base)' }}>
           <div className="timeline">
             {recentActivities.map((activity) => {
               const actUser = allUsers.find(u => u.id === activity.user_id);

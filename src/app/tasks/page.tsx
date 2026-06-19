@@ -47,12 +47,16 @@ interface TaskCardProps {
   onStatusChange?: (taskId: string, newStatus: TaskStatus) => void;
   isMobile?: boolean;
   canAssign?: boolean;
+  canEdit?: boolean;
 }
 
-function TaskCard({ task, allUsers, onClick, onDragStart, onDragEnd, onAssign, onStatusChange, isMobile = false, canAssign = false }: TaskCardProps) {
+function TaskCard({ task, allUsers, onClick, onDragStart, onDragEnd, onAssign, onStatusChange, isMobile = false, canAssign = false, canEdit = false }: TaskCardProps) {
   const assignee = task.assignee_id ? allUsers.find(u => u.id === task.assignee_id) : null;
   const today = new Date().toISOString().split('T')[0];
   const isOverdue = task.due_date && new Date(task.due_date) < new Date(today) && task.status !== 'done';
+
+  // Restrict interns to only move tasks up to "review"
+  const allowedStatuses = canEdit ? COLUMNS : ['todo', 'in_progress', 'review'];
 
   if (isMobile) {
     return (
@@ -92,8 +96,8 @@ function TaskCard({ task, allUsers, onClick, onDragStart, onDragEnd, onAssign, o
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {COLUMNS.map(s => (
-              <option key={s} value={s}>{TASK_STATUS_CONFIG[s].label}</option>
+            {allowedStatuses.map(s => (
+              <option key={s} value={s}>{TASK_STATUS_CONFIG[s as TaskStatus].label}</option>
             ))}
           </select>
         </div>
@@ -770,7 +774,7 @@ function TaskDetailDrawer({ task, allUsers, onClose, onUpdated }: TaskDetailDraw
 
 // ── Main Task Board Page ──
 export default function TaskBoardPage() {
-  const { user, isAdmin, isLead } = useAuth();
+  const { user, isAdmin, isLead, isIntern } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [allUsers, setAllUsers] = useState<Profile[]>([]);
   const [allTeams, setAllTeams] = useState<Team[]>([]);
@@ -780,8 +784,13 @@ export default function TaskBoardPage() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [assignTask, setAssignTask] = useState<Task | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<TaskStatus | null>(null);
-  const [filterTeam, setFilterTeam] = useState<string>('all');
-  const [filterAssignee, setFilterAssignee] = useState<string>('all');
+  
+  // Set default filters based on role
+  const getDefaultTeamFilter = () => isIntern ? 'own' : (isLead ? user?.team_id || 'all' : 'all');
+  const getDefaultAssigneeFilter = () => isIntern ? user?.id || 'all' : 'all';
+  
+  const [filterTeam, setFilterTeam] = useState<string>(getDefaultTeamFilter());
+  const [filterAssignee, setFilterAssignee] = useState<string>(getDefaultAssigneeFilter());
   const { isMobile } = useIsMobile();
   const [expandedColumns, setExpandedColumns] = useState<Record<TaskStatus, boolean>>({
     todo: true,
@@ -844,15 +853,23 @@ export default function TaskBoardPage() {
 
   // Filter tasks
   let filteredTasks = tasks;
-  if (filterTeam !== 'all') {
+  
+  // For interns: show only their own tasks
+  if (isIntern && user) {
+    filteredTasks = filteredTasks.filter(t => t.assignee_id === user.id);
+  } 
+  // For leads: show only their team's tasks
+  else if (isLead && user?.team_id && filterTeam !== 'all') {
     filteredTasks = filteredTasks.filter(t => t.team_id === filterTeam);
   }
-  if (filterAssignee !== 'all') {
-    filteredTasks = filteredTasks.filter(t => t.assignee_id === filterAssignee);
-  }
-  // Role-based filtering for interns
-  if (!isAdmin && !isLead) {
-    filteredTasks = filteredTasks.filter(t => t.assignee_id === user.id || t.team_id === user.team_id);
+  // For admins: allow filtering by team/assignee
+  else if (isAdmin) {
+    if (filterTeam !== 'all') {
+      filteredTasks = filteredTasks.filter(t => t.team_id === filterTeam);
+    }
+    if (filterAssignee !== 'all') {
+      filteredTasks = filteredTasks.filter(t => t.assignee_id === filterAssignee);
+    }
   }
 
   const handleDragStart = (e: React.DragEvent, taskId: string) => {
@@ -888,17 +905,33 @@ export default function TaskBoardPage() {
     <div className="animate-slide-up">
       {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-xl)', flexWrap: 'wrap', gap: 'var(--spacing-md)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
-          <Filter size={16} style={{ color: 'var(--color-text-secondary)' }} />
-          <select className="form-select" style={{ width: 'auto', minWidth: 140 }} value={filterTeam} onChange={e => setFilterTeam(e.target.value)}>
-            <option value="all">All Teams</option>
-            {allTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-          <select className="form-select" style={{ width: 'auto', minWidth: 140 }} value={filterAssignee} onChange={e => setFilterAssignee(e.target.value)}>
-            <option value="all">All Members</option>
-            {allUsers.filter(u => u.status === 'active').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-          </select>
-        </div>
+        {!isIntern && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
+            <Filter size={16} style={{ color: 'var(--color-text-secondary)' }} />
+            {isAdmin && (
+              <>
+                <select className="form-select" style={{ width: 'auto', minWidth: 140 }} value={filterTeam} onChange={e => setFilterTeam(e.target.value)}>
+                  <option value="all">All Teams</option>
+                  {allTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+                <select className="form-select" style={{ width: 'auto', minWidth: 140 }} value={filterAssignee} onChange={e => setFilterAssignee(e.target.value)}>
+                  <option value="all">All Members</option>
+                  {allUsers.filter(u => u.status === 'active').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </>
+            )}
+            {isLead && user?.team_id && (
+              <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }}>
+                Your Team Tasks
+              </div>
+            )}
+          </div>
+        )}
+        {isIntern && (
+          <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }}>
+            Your Assigned Tasks
+          </div>
+        )}
         {(isAdmin || isLead) && (
           <button className="btn btn-accent" onClick={() => setShowCreateModal(true)}>
             <Plus size={18} /> New Task
@@ -966,6 +999,7 @@ export default function TaskBoardPage() {
                         onDragStart={() => {}}
                         onDragEnd={() => {}}
                         isMobile={true}
+                        canEdit={isAdmin || isLead}
                         onStatusChange={async (taskId, newStatus) => {
                           try {
                             await updateTask(taskId, { status: newStatus });
@@ -999,13 +1033,24 @@ export default function TaskBoardPage() {
           {COLUMNS.map((status) => {
             const columnTasks = filteredTasks.filter(t => t.status === status);
             const config = TASK_STATUS_CONFIG[status];
+            // Interns can't drop tasks in "done" or "blocked" columns
+            const canDropHere = isAdmin || isLead || (status !== 'done' && status !== 'blocked');
+            
             return (
               <div
                 key={status}
-                className={`kanban-column ${dragOverColumn === status ? 'drag-over' : ''}`}
-                onDragOver={(e) => handleDragOver(e, status)}
+                className={`kanban-column ${dragOverColumn === status && canDropHere ? 'drag-over' : ''}`}
+                onDragOver={(e) => {
+                  if (isAdmin || isLead || (status !== 'done' && status !== 'blocked')) {
+                    handleDragOver(e, status);
+                  }
+                }}
                 onDragLeave={() => setDragOverColumn(null)}
-                onDrop={(e) => handleDrop(e, status)}
+                onDrop={(e) => {
+                  if (isAdmin || isLead || (status !== 'done' && status !== 'blocked')) {
+                    handleDrop(e, status);
+                  }
+                }}
               >
                 <div className="kanban-column-header">
                   <div className="kanban-column-title">
@@ -1021,10 +1066,17 @@ export default function TaskBoardPage() {
                       task={task}
                       allUsers={allUsers}
                       onClick={() => setSelectedTask(task)}
-                      onDragStart={(e) => handleDragStart(e, task.id)}
+                      onDragStart={(e) => {
+                        if (isAdmin || isLead) {
+                          handleDragStart(e, task.id);
+                        } else {
+                          e.preventDefault();
+                        }
+                      }}
                       onDragEnd={handleDragEnd}
                       onAssign={(e) => { e.stopPropagation(); setAssignTask(task); }}
                       canAssign={isAdmin || isLead}
+                      canEdit={isAdmin || isLead}
                       isMobile={false}
                     />
                   ))}

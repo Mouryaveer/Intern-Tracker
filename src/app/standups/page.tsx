@@ -30,13 +30,15 @@ function getInitials(name: string): string {
 
 // ── Standup Form ──
 function StandupForm({ onSubmitted }: { onSubmitted: () => void }) {
-  const { user } = useAuth();
+  const { user, isIntern } = useAuth();
   const [didYesterday, setDidYesterday] = useState('');
   const [doingToday, setDoingToday] = useState('');
   const [blockers, setBlockers] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [editCount, setEditCount] = useState(0);
+  const [today, setToday] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
     const fetchExisting = async () => {
@@ -48,6 +50,9 @@ function StandupForm({ onSubmitted }: { onSubmitted: () => void }) {
           setDoingToday(existing.doing_today);
           setBlockers(existing.blockers);
           setSubmitted(true);
+          // Track edit count from localStorage
+          const edits = JSON.parse(localStorage.getItem(`standup_edits_${user.id}_${today}`) || '0');
+          setEditCount(edits);
         }
       } catch (err) {
         console.error('Error fetching today standup:', err);
@@ -56,17 +61,27 @@ function StandupForm({ onSubmitted }: { onSubmitted: () => void }) {
       }
     };
     fetchExisting();
-  }, [user]);
+  }, [user, today]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+
+    // For interns, limit edits to 2
+    if (isIntern && editCount >= 2) {
+      alert('You can only edit your standup twice per day.');
+      return;
+    }
 
     try {
       setLoading(true);
       await submitStandup(user.id, didYesterday, doingToday, blockers);
       setSubmitted(true);
       setIsEditing(false);
+      // Increment edit count
+      const newCount = editCount + 1;
+      setEditCount(newCount);
+      localStorage.setItem(`standup_edits_${user.id}_${today}`, JSON.stringify(newCount));
       onSubmitted();
     } catch (err) {
       console.error('Error submitting standup:', err);
@@ -82,16 +97,31 @@ function StandupForm({ onSubmitted }: { onSubmitted: () => void }) {
   }
 
   if (submitted && !isEditing) {
+    const canEdit = !isIntern || editCount < 2;
+    const dateDisplay = new Date(today).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    
     return (
       <div className="card animate-slide-up" style={{ borderLeft: '3px solid var(--color-done)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-md)' }}>
+          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
+            📅 {dateDisplay}
+          </div>
+          {isIntern && (
+            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>
+              Edits: {editCount}/2
+            </div>
+          )}
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-lg)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
             <CheckCircle2 size={20} style={{ color: 'var(--color-done)' }} />
             <span style={{ fontWeight: 600, color: 'var(--color-done)' }}>Standup submitted for today</span>
           </div>
-          <button className="btn btn-sm btn-outline" onClick={() => setIsEditing(true)}>
-            <Edit3 size={14} /> Edit
-          </button>
+          {canEdit && (
+            <button className="btn btn-sm btn-outline" onClick={() => setIsEditing(true)}>
+              <Edit3 size={14} /> Edit
+            </button>
+          )}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
@@ -114,11 +144,20 @@ function StandupForm({ onSubmitted }: { onSubmitted: () => void }) {
 
   return (
     <div className="card animate-slide-up">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-xl)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-lg)' }}>
         <MessageSquareText size={20} style={{ color: 'var(--color-accent)' }} />
         <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600 }}>
           {isEditing ? 'Edit Your Standup' : 'Submit Your Daily Standup'}
         </h3>
+      </div>
+
+      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-lg)', padding: 'var(--spacing-md)', background: 'var(--color-bg)', borderRadius: 'var(--radius-md)' }}>
+        📅 <strong>{new Date(today).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</strong>
+        {isIntern && (
+          <div style={{ marginTop: 4, fontSize: 'var(--font-size-xs)' }}>
+            Edits remaining: {Math.max(0, 2 - editCount)}/2
+          </div>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-lg)' }}>
@@ -169,7 +208,7 @@ function StandupForm({ onSubmitted }: { onSubmitted: () => void }) {
 
 // ── Team Standup View ──
 function TeamStandupView() {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isLead, isIntern } = useAuth();
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
 
@@ -214,10 +253,22 @@ function TeamStandupView() {
     );
   }
 
-  // Filter team members (interns)
+  // Interns can only see their own standup, not team view
+  if (isIntern) {
+    return (
+      <div style={{ padding: 'var(--spacing-2xl)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+        <p>Interns can only view and submit their own standup.</p>
+      </div>
+    );
+  }
+
+  // Filter team members (interns) - for leads and admins
   let members = allUsers.filter(u => u.role === 'intern' && u.status === 'active');
   if (filterTeam !== 'all') {
     members = members.filter(u => u.team_id === filterTeam);
+  } else if (isLead && user?.team_id) {
+    // Leads only see their own team's interns
+    members = members.filter(u => u.team_id === user.team_id);
   }
 
   const submittedCount = dateStandups.filter(s => members.some(m => m.id === s.user_id)).length;
@@ -334,15 +385,15 @@ function TeamStandupView() {
 
 // ── Main Standups Page ──
 export default function StandupsPage() {
-  const { user, isIntern } = useAuth();
+  const { user, isIntern, isLead } = useAuth();
   const [refreshKey, setRefreshKey] = useState(0);
-  const [activeTab, setActiveTab] = useState<'form' | 'team'>('team');
+  const [activeTab, setActiveTab] = useState<'form' | 'team'>('form');
 
   useEffect(() => {
-    if (isIntern) {
-      queueMicrotask(() => setActiveTab('form'));
+    if (!isIntern && isLead) {
+      setActiveTab('team');
     }
-  }, [isIntern]);
+  }, [isIntern, isLead]);
 
   if (!user) return null;
 
@@ -350,27 +401,27 @@ export default function StandupsPage() {
     <div className="animate-slide-up">
       {/* Tabs */}
       <div className="tabs">
-        {isIntern && (
+        <button
+          className={`tab ${activeTab === 'form' ? 'active' : ''}`}
+          onClick={() => setActiveTab('form')}
+        >
+          {isIntern ? 'My Standup' : 'Your Standup'}
+        </button>
+        {!isIntern && (
           <button
-            className={`tab ${activeTab === 'form' ? 'active' : ''}`}
-            onClick={() => setActiveTab('form')}
+            className={`tab ${activeTab === 'team' ? 'active' : ''}`}
+            onClick={() => setActiveTab('team')}
           >
-            My Standup
+            Team View
           </button>
         )}
-        <button
-          className={`tab ${activeTab === 'team' ? 'active' : ''}`}
-          onClick={() => setActiveTab('team')}
-        >
-          Team View
-        </button>
       </div>
 
       {activeTab === 'form' && (
         <StandupForm key={refreshKey} onSubmitted={() => setRefreshKey(k => k + 1)} />
       )}
 
-      {activeTab === 'team' && (
+      {activeTab === 'team' && !isIntern && (
         <TeamStandupView key={refreshKey} />
       )}
     </div>

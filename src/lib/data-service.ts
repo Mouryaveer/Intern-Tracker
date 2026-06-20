@@ -22,6 +22,19 @@ function getSupabase() {
   return createClient();
 }
 
+async function parseApiResponse<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const message = typeof body?.error === 'string'
+      ? body.error
+      : `Request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  return body as T;
+}
+
 // ============================================================
 // USERS / PROFILES
 // ============================================================
@@ -202,38 +215,28 @@ export async function getTasksByTeam(teamId: string): Promise<Task[]> {
 }
 
 export async function createTask(task: Omit<Task, 'id' | 'created_at' | 'completed_at'>): Promise<Task> {
-  const supabase = getSupabase();
-  const { data, error } = await supabase
-    .from('tasks')
-    .insert(task)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data as Task;
+  const response = await fetch('/api/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(task),
+  });
+  const { data } = await parseApiResponse<{ data: Task }>(response);
+  return data;
 }
 
 export async function updateTask(id: string, updates: Partial<Task>): Promise<Task | null> {
-  const supabase = getSupabase();
-  const { data, error } = await supabase
-    .from('tasks')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data as Task;
+  const response = await fetch(`/api/tasks/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  const { data } = await parseApiResponse<{ data: Task }>(response);
+  return data;
 }
 
 export async function deleteTask(id: string): Promise<void> {
-  const supabase = getSupabase();
-  const { error } = await supabase
-    .from('tasks')
-    .delete()
-    .eq('id', id);
-
-  if (error) throw error;
+  const response = await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
+  await parseApiResponse(response);
 }
 
 // ============================================================

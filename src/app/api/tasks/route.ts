@@ -1,10 +1,12 @@
 // GET /api/tasks — List tasks
 // POST /api/tasks — Create task
+import { after } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/logger';
 import { handleApiError } from '@/lib/error-handler';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { validateTaskInput, sanitizeText } from '@/lib/validators';
+import { triggerTaskNotification } from '@/lib/task-notifications';
 
 export async function GET(request: Request) {
   try {
@@ -77,7 +79,7 @@ export async function POST(request: Request) {
       due_date: body.due_date || null,
     };
 
-    const { data, error } = await supabase
+    const { data, error } = await adminClient
       .from('tasks')
       .insert(taskData)
       .select()
@@ -86,14 +88,28 @@ export async function POST(request: Request) {
     if (error) throw error;
 
     // Log activity
-    await supabase.from('task_activity').insert({
+    const { error: activityError } = await adminClient.from('task_activity').insert({
       task_id: data.id,
       user_id: user.id,
       action: 'Created task',
       to_status: taskData.status,
     });
+    if (activityError) {
+      logger.warn('Task activity log skipped after task creation', {
+        userId: user.id,
+        metadata: { taskId: data.id, error: activityError.message },
+      });
+    }
 
     logger.taskCreated(data.id, user.id, data.title);
+    triggerTaskNotification({
+      taskId: data.id,
+      type: 'assigned',
+      requestUrl: request.url,
+      cookieHeader: request.headers.get('cookie'),
+      schedule: after,
+    });
+
     return Response.json({ data }, { status: 201 });
   } catch (error) {
     logger.apiError('/api/tasks POST', error);

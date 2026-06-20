@@ -18,7 +18,6 @@ import {
   Trophy,
   CheckCircle2,
 } from 'lucide-react';
-import { useIsMobile } from '@/lib/useIsMobile';
 import { subscribeToTable, unsubscribe } from '@/lib/realtime';
 
 // ── Metric Ring (Circular Progress) ──
@@ -61,8 +60,6 @@ interface InternPerformanceCardProps {
 }
 
 function InternPerformanceCard({ intern, metrics, teamName }: InternPerformanceCardProps) {
-  const { isMobile } = useIsMobile();
-
   if (!metrics) return null;
 
   return (
@@ -160,8 +157,6 @@ interface TeamMetricsCardProps {
 }
 
 function TeamMetricsCard({ team, metrics }: TeamMetricsCardProps) {
-  const { isMobile } = useIsMobile();
-
   if (!metrics) return null;
 
   return (

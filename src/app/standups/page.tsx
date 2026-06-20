@@ -38,7 +38,7 @@ function StandupForm({ onSubmitted }: { onSubmitted: () => void }) {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [editCount, setEditCount] = useState(0);
-  const [today, setToday] = useState(new Date().toISOString().split('T')[0]);
+  const [today] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
     const fetchExisting = async () => {
@@ -391,7 +391,7 @@ export default function StandupsPage() {
 
   useEffect(() => {
     if (!isIntern && isLead) {
-      setActiveTab('team');
+      queueMicrotask(() => setActiveTab('team'));
     }
   }, [isIntern, isLead]);
 

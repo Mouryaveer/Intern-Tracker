@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
+import { useToast } from '@/components/Toast';
 import {
   getTasks,
   getTasksByAssignee,
@@ -42,8 +43,23 @@ function formatRelativeTime(dateStr: string): string {
   return date.toLocaleDateString();
 }
 
+function readSeenTaskIds(storageKey: string): Set<string> {
+  try {
+    const rawValue = localStorage.getItem(storageKey);
+    if (!rawValue) return new Set();
+
+    const parsed = JSON.parse(rawValue);
+    if (!Array.isArray(parsed)) return new Set();
+
+    return new Set(parsed.filter((value): value is string => typeof value === 'string'));
+  } catch {
+    return new Set();
+  }
+}
+
 export default function DashboardPage() {
   const { user, isAdmin, isLead, isIntern } = useAuth();
+  const { showToast } = useToast();
   const router = useRouter();
   
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -143,6 +159,27 @@ export default function DashboardPage() {
       };
     }
   }, [user, loadDashboardData]);
+
+  useEffect(() => {
+    if (!user || !isIntern || loading || tasks.length === 0) return;
+
+    const storageKey = `turn2law.seenAssignedTasks.${user.id}`;
+    const seenTaskIds = readSeenTaskIds(storageKey);
+    const unseenAssignedTasks = tasks
+      .filter(task => task.assignee_id === user.id && task.status !== 'done' && !seenTaskIds.has(task.id))
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    if (unseenAssignedTasks.length === 0) return;
+
+    const latestTask = unseenAssignedTasks[0];
+    const message = unseenAssignedTasks.length === 1
+      ? `New task assigned: ${latestTask.title}`
+      : `${unseenAssignedTasks.length} new tasks assigned. Latest: ${latestTask.title}`;
+
+    showToast('info', message, 9000);
+    unseenAssignedTasks.forEach(task => seenTaskIds.add(task.id));
+    localStorage.setItem(storageKey, JSON.stringify(Array.from(seenTaskIds)));
+  }, [isIntern, loading, showToast, tasks, user]);
 
   if (loading || !user) {
     return (

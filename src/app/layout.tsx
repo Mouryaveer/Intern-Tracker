@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from '@/lib/auth-context';
+import { ToastProvider } from '@/components/Toast';
 
 export const metadata: Metadata = {
   title: "Turn2Law Intern Tracker",
@@ -20,7 +21,9 @@ export default function RootLayout({
       </head>
       <body>
         <AuthProvider>
-          {children}
+          <ToastProvider>
+            {children}
+          </ToastProvider>
         </AuthProvider>
       </body>
     </html>

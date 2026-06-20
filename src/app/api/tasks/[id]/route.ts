@@ -1,11 +1,13 @@
 // GET /api/tasks/[id] — Get task
 // PATCH /api/tasks/[id] — Update task
 // DELETE /api/tasks/[id] — Delete task
+import { after } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { logger } from '@/lib/logger';
 import { handleApiError } from '@/lib/error-handler';
 import { sanitizeText } from '@/lib/validators';
+import { triggerTaskNotification } from '@/lib/task-notifications';
 import type { NextRequest } from 'next/server';
 
 export async function GET(
@@ -51,18 +53,40 @@ export async function PATCH(
       return Response.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
+    const admin = createAdminClient();
+    const { data: profile } = await admin
+      .from('profiles')
+      .select('role, team_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!profile) {
+      return Response.json({ error: 'User profile not found' }, { status: 403 });
+    }
+
     // Get current task for activity logging
-    const { data: currentTask } = await supabase
+    const { data: currentTask, error: currentTaskError } = await admin
       .from('tasks')
       .select('*')
       .eq('id', id)
       .single();
 
-    if (!currentTask) {
+    if (currentTaskError || !currentTask) {
       return Response.json({ error: 'Task not found' }, { status: 404 });
     }
 
     const body = await request.json();
+    const isAdmin = profile.role === 'admin';
+    const isLead = profile.role === 'lead';
+    const isAssignedIntern = profile.role === 'intern' && currentTask.assignee_id === user.id;
+
+    if (!isAdmin && !isLead && !isAssignedIntern) {
+      return Response.json({ error: 'You do not have permission to update this task' }, { status: 403 });
+    }
+
+    if (isLead && currentTask.team_id && profile.team_id !== currentTask.team_id) {
+      return Response.json({ error: 'Leads can only update tasks in their team' }, { status: 403 });
+    }
 
     // Build update object
     const updates: Record<string, unknown> = {};
@@ -75,7 +99,32 @@ export async function PATCH(
     if (body.priority !== undefined) updates.priority = body.priority;
     if (body.due_date !== undefined) updates.due_date = body.due_date || null;
 
-    const { data, error } = await supabase
+    if (!isAdmin && !isLead) {
+      const allowedInternUpdates = new Set(['status']);
+      for (const key of Object.keys(updates)) {
+        if (!allowedInternUpdates.has(key)) {
+          return Response.json({ error: 'Interns can only update task status' }, { status: 403 });
+        }
+      }
+
+      if (updates.status && !['todo', 'in_progress', 'review'].includes(updates.status as string)) {
+        return Response.json({ error: 'Interns can only move tasks to To Do, In Progress, or Review' }, { status: 403 });
+      }
+    }
+
+    if (updates.status && !['todo', 'in_progress', 'review', 'done', 'blocked'].includes(updates.status as string)) {
+      return Response.json({ error: 'Invalid task status' }, { status: 400 });
+    }
+
+    if (updates.priority && !['low', 'medium', 'high'].includes(updates.priority as string)) {
+      return Response.json({ error: 'Invalid priority' }, { status: 400 });
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return Response.json({ error: 'No valid updates provided' }, { status: 400 });
+    }
+
+    const { data, error } = await admin
       .from('tasks')
       .update(updates)
       .eq('id', id)
@@ -90,6 +139,20 @@ export async function PATCH(
     }
 
     logger.taskUpdated(id, user.id, updates);
+    if (
+      Object.prototype.hasOwnProperty.call(updates, 'assignee_id')
+      && currentTask.assignee_id !== data.assignee_id
+      && data.assignee_id
+    ) {
+      triggerTaskNotification({
+        taskId: data.id,
+        type: 'reassigned',
+        requestUrl: request.url,
+        cookieHeader: request.headers.get('cookie'),
+        schedule: after,
+      });
+    }
+
     return Response.json({ data });
   } catch (error) {
     logger.apiError('/api/tasks/[id] PATCH', error);

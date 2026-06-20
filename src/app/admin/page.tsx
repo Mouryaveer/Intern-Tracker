@@ -377,7 +377,7 @@ export default function AdminPage() {
   const handleDeleteUser = async (userId: string, userName: string) => {
     if (confirm(`Permanently delete "${userName}"? This cannot be undone and will remove all their data.`)) {
       try {
-        const res = await fetch(`/api/users/${userId}`, {
+        await fetch(`/api/users/${userId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ _permanent_delete: true }),

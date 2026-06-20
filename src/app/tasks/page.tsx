@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
+import { useToast } from '@/components/Toast';
 import {
   getTasks,
   createTask,
@@ -32,6 +33,10 @@ import { subscribeToTable, unsubscribe } from '@/lib/realtime';
 
 function getInitials(name: string): string {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
 }
 
 const COLUMNS: TaskStatus[] = ['todo', 'in_progress', 'review', 'done', 'blocked'];
@@ -172,6 +177,7 @@ interface AssignTaskModalProps {
 
 function AssignTaskModal({ task, allUsers, allTeams, onClose, onAssigned }: AssignTaskModalProps) {
   const { user, isAdmin, isLead } = useAuth();
+  const toast = useToast();
 
   const activeUsers = allUsers.filter(u => u.status === 'active');
 
@@ -191,7 +197,8 @@ function AssignTaskModal({ task, allUsers, allTeams, onClose, onAssigned }: Assi
       onAssigned();
       onClose();
     } catch (err) {
-      console.error('Error assigning task:', err);
+      console.warn('Error assigning task:', err);
+      toast.error(getErrorMessage(err, 'Could not assign task'));
     }
   };
 
@@ -305,6 +312,7 @@ interface CreateTaskModalProps {
 
 function CreateTaskModal({ allUsers, allTeams, onClose, onCreated }: CreateTaskModalProps) {
   const { user, isAdmin, isLead } = useAuth();
+  const toast = useToast();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [acceptanceCriteria, setAcceptanceCriteria] = useState('');
@@ -342,7 +350,8 @@ function CreateTaskModal({ allUsers, allTeams, onClose, onCreated }: CreateTaskM
       onCreated();
       onClose();
     } catch (err) {
-      console.error('Error creating task:', err);
+      console.warn('Error creating task:', err);
+      toast.error(getErrorMessage(err, 'Could not create task'));
     }
   };
 
@@ -418,6 +427,7 @@ interface TaskDetailDrawerProps {
 
 function TaskDetailDrawer({ task, allUsers, onClose, onUpdated }: TaskDetailDrawerProps) {
   const { user, isAdmin, isLead } = useAuth();
+  const toast = useToast();
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title);
   const [editDescription, setEditDescription] = useState(task.description);
@@ -451,7 +461,7 @@ function TaskDetailDrawer({ task, allUsers, onClose, onUpdated }: TaskDetailDraw
         const data = await getTaskActivity(task.id);
         setActivities(data);
       } catch (err) {
-        console.error('Error fetching activities:', err);
+        console.warn('Error fetching activities:', err);
       } finally {
         setLoadingActivities(false);
       }
@@ -462,7 +472,7 @@ function TaskDetailDrawer({ task, allUsers, onClose, onUpdated }: TaskDetailDraw
     fetch(`/api/tasks/comments?task_id=${task.id}`)
       .then(r => r.json())
       .then(r => setComments(r.data || []))
-      .catch(console.error);
+      .catch(err => console.warn('Error fetching comments:', err));
   }, [task.id]);
 
   const handleAddComment = async () => {
@@ -478,7 +488,8 @@ function TaskDetailDrawer({ task, allUsers, onClose, onUpdated }: TaskDetailDraw
       if (data.data) setComments(prev => [...prev, data.data]);
       setNewComment('');
     } catch (err) {
-      console.error('Error posting comment:', err);
+      console.warn('Error posting comment:', err);
+      toast.error(getErrorMessage(err, 'Could not post comment'));
     } finally {
       setSubmittingComment(false);
     }
@@ -499,7 +510,8 @@ function TaskDetailDrawer({ task, allUsers, onClose, onUpdated }: TaskDetailDraw
       setEditing(false);
       onUpdated();
     } catch (err) {
-      console.error('Error updating task:', err);
+      console.warn('Error updating task:', err);
+      toast.error(getErrorMessage(err, 'Could not update task'));
     }
   };
 
@@ -510,7 +522,8 @@ function TaskDetailDrawer({ task, allUsers, onClose, onUpdated }: TaskDetailDraw
         onClose();
         onUpdated();
       } catch (err) {
-        console.error('Error deleting task:', err);
+        console.warn('Error deleting task:', err);
+        toast.error(getErrorMessage(err, 'Could not delete task'));
       }
     }
   };

@@ -15,15 +15,19 @@ interface LogEntry {
   timestamp: string;
 }
 
+function sanitize(value: string): string {
+  return value.replace(/[\r\n\t]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 function formatLog(entry: LogEntry): string {
   const parts = [
     `[${entry.level.toUpperCase()}]`,
     `[${entry.timestamp}]`,
-    entry.action,
+    sanitize(entry.action),
   ];
 
-  if (entry.userId) parts.push(`user=${entry.userId}`);
-  if (entry.entityType) parts.push(`${entry.entityType}=${entry.entityId || 'unknown'}`);
+  if (entry.userId) parts.push(`user=${sanitize(entry.userId)}`);
+  if (entry.entityType) parts.push(`${sanitize(entry.entityType)}=${entry.entityId ? sanitize(entry.entityId) : 'unknown'}`);
   if (entry.metadata) parts.push(JSON.stringify(entry.metadata));
 
   return parts.join(' ');
@@ -71,7 +75,7 @@ class Logger {
   loginAttempt(email: string, success: boolean, userId?: string) {
     this.log(success ? 'info' : 'warn', `Login ${success ? 'successful' : 'failed'}`, {
       userId,
-      metadata: { email, success },
+      metadata: { email: sanitize(email), success },
     });
   }
 

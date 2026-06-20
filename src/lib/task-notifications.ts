@@ -44,16 +44,16 @@ export function triggerTaskNotification({
 
       if (!response.ok) {
         console.warn('[notifications] Task notification returned a non-OK response', {
-          taskId,
+          taskId: taskId?.replace(/[\r\n]/g, ''),
           type,
           status: response.status,
         });
       }
     } catch (error: unknown) {
       console.error('[notifications] Task notification request failed safely', {
-        taskId,
+        taskId: taskId?.replace(/[\r\n]/g, ''),
         type,
-        error: error instanceof Error ? error.message : String(error),
+        error: error instanceof Error ? error.message.replace(/[\r\n]/g, ' ') : String(error).replace(/[\r\n]/g, ' '),
       });
     }
   };

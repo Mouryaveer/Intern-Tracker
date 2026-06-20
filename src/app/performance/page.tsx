@@ -22,7 +22,7 @@ import { subscribeToTable, unsubscribe } from '@/lib/realtime';
 import { debounce } from '@/lib/debounce';
 
 // ── Metric Ring (Circular Progress) ──
-function MetricRing({ value, size = 60, color = 'var(--color-accent)' }: { value: number; size?: number; color?: string }) {
+function MetricRing({ value, size = 48, color = 'var(--color-accent)' }: { value: number; size?: number; color?: string }) {
   const radius = (size - 8) / 2;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (value / 100) * circumference;
@@ -65,7 +65,7 @@ function InternPerformanceCard({ intern, metrics, teamName }: InternPerformanceC
 
   return (
     <div className="card" style={{ padding: 'var(--spacing-base)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-lg)', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)', flexWrap: 'wrap' }}>
         <Avatar name={intern.name} avatarUrl={intern.avatar_url} size="lg" />
         <div style={{ flex: 1, minWidth: 120 }}>
           <div style={{ fontWeight: 600, fontSize: 'var(--font-size-md)' }}>{intern.name}</div>
@@ -135,7 +135,7 @@ function InternPerformanceCard({ intern, metrics, teamName }: InternPerformanceC
       </div>
 
       {/* Attendance Rate */}
-      <div style={{ marginTop: 'var(--spacing-lg)', paddingTop: 'var(--spacing-md)', borderTop: '1px solid var(--color-border-light)' }}>
+      <div style={{ marginTop: 'var(--spacing-md)', paddingTop: 'var(--spacing-sm)', borderTop: '1px solid var(--color-border-light)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
           <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Attendance Rate</span>
           <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>{metrics.attendance_rate}%</span>
@@ -162,7 +162,7 @@ function TeamMetricsCard({ team, metrics }: TeamMetricsCardProps) {
 
   return (
     <div className="card" style={{ padding: 'var(--spacing-base)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-lg)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)' }}>
         <div style={{
           width: 44,
           height: 44,
@@ -209,7 +209,7 @@ function TeamMetricsCard({ team, metrics }: TeamMetricsCardProps) {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 'var(--spacing-base)', marginTop: 'var(--spacing-lg)', paddingTop: 'var(--spacing-md)', borderTop: '1px solid var(--color-border-light)' }}>
+      <div style={{ display: 'flex', gap: 'var(--spacing-base)', marginTop: 'var(--spacing-md)', paddingTop: 'var(--spacing-sm)', borderTop: '1px solid var(--color-border-light)' }}>
         <div style={{ flex: 1, textAlign: 'center' }}>
           <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700 }}>{metrics.total_tasks}</div>
           <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>Total Tasks</div>

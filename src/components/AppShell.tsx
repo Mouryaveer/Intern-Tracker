@@ -382,7 +382,7 @@ function ProtectedContent({ children }: { children: React.ReactNode }) {
         onMobileClose={() => setMobileOpen(false)}
         onProfileOpen={() => setProfileOpen(true)}
       />
-      <main className="main-content" style={{ marginLeft: isMobile ? 0 : (sidebarCollapsed ? 'var(--sidebar-collapsed)' : undefined) }}>
+      <main className={`main-content${sidebarCollapsed && !isMobile ? ' sidebar-collapsed' : ''}`}>
         <TopBar onMobileMenuOpen={() => setMobileOpen(true)} />
         <div className="page-content animate-fade-in">
           {children}

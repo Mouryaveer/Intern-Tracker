@@ -366,6 +366,7 @@ export default function DashboardPage() {
                           border: '1px solid var(--color-border-light)',
                           cursor: 'pointer',
                           transition: 'all 150ms ease',
+                          flexWrap: 'wrap',
                         }}
                         onClick={() => router.push('/tasks')}
                         onMouseEnter={(e) => {
@@ -376,7 +377,7 @@ export default function DashboardPage() {
                         }}
                       >
                         <span className={`badge badge-${task.priority}`}>{task.priority}</span>
-                        <span style={{ flex: 1, fontSize: 'var(--font-size-sm)', fontWeight: 500 }} className="truncate">
+                        <span style={{ flex: 1, fontSize: 'var(--font-size-sm)', fontWeight: 500, minWidth: 0 }} className="truncate">
                           {task.title}
                         </span>
                         <span className={`badge badge-${task.status.replace('_', '-')}`}>
@@ -448,9 +449,9 @@ export default function DashboardPage() {
                           {date.toLocaleDateString('en-US', { month: 'short' })}
                         </div>
                       </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600 }}>{meeting.title}</div>
-                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600 }} className="truncate">{meeting.title}</div>
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }} className="truncate">
                           {date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                           {team && ` · ${team.name}`}
                           {!team && ' · All Teams'}

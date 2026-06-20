@@ -44,9 +44,9 @@ export async function GET() {
 
   // ── 2. Auth users ──
   const usersSpec = [
-    { email: 'admin@turn2law.in',  password: 'admin123', name: 'Admin',  role: 'admin',  must_reset: false, team: null },
-    { email: 'lead@turn2law.in',   password: 'lead123',  name: 'Lead',   role: 'lead',   must_reset: false, team: T1   },
-    { email: 'intern@turn2law.in', password: 'intern123',name: 'Intern', role: 'intern', must_reset: false, team: T1   },
+    { email: 'admin@turn2law.in',  password: process.env.SEED_ADMIN_PASSWORD || 'admin123',  name: 'Admin',  role: 'admin',  must_reset: false, team: null },
+    { email: 'lead@turn2law.in',   password: process.env.SEED_LEAD_PASSWORD  || 'lead123',   name: 'Lead',   role: 'lead',   must_reset: false, team: T1   },
+    { email: 'intern@turn2law.in', password: process.env.SEED_INTERN_PASSWORD || 'intern123', name: 'Intern', role: 'intern', must_reset: false, team: T1   },
   ];
 
   const { data: { users: existingUsers } } = await admin.auth.admin.listUsers();
@@ -183,12 +183,7 @@ export async function GET() {
 
   return Response.json({
     success: true,
-    message: 'Database seeded successfully!',
-    credentials: {
-      admin:  'admin@turn2law.in / admin123',
-      lead:   'lead@turn2law.in / lead123',
-      intern: 'intern@turn2law.in / intern123',
-    },
+    message: 'Database seeded successfully! Use admin@turn2law.in, lead@turn2law.in, intern@turn2law.in with configured passwords.',
     log,
   });
 }

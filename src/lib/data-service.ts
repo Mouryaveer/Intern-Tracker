@@ -444,7 +444,7 @@ export async function getUserPerformance(userId: string): Promise<PerformanceMet
   const supabase = getSupabase();
   const { data, error } = await supabase.rpc('get_user_performance_metrics', { p_user_id: userId });
   if (error) {
-    console.error('Error fetching user performance:', error);
+    console.error('Error fetching user performance:', error.message ?? error);
     // Return empty fallback instead of throwing to prevent dashboard crash
     return {
       user_id: userId,
@@ -464,7 +464,7 @@ export async function getTeamMetrics(teamId: string): Promise<TeamMetrics> {
   const supabase = getSupabase();
   const { data, error } = await supabase.rpc('get_team_performance_metrics', { p_team_id: teamId });
   if (error) {
-    console.error('Error fetching team performance:', error);
+    console.error('Error fetching team performance:', error.message ?? error);
     return {
       team_id: teamId,
       total_tasks: 0,

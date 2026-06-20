@@ -19,6 +19,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { subscribeToTable, unsubscribe } from '@/lib/realtime';
+import { debounce } from '@/lib/debounce';
 
 // ── Metric Ring (Circular Progress) ──
 function MetricRing({ value, size = 60, color = 'var(--color-accent)' }: { value: number; size?: number; color?: string }) {
@@ -293,22 +294,26 @@ export default function PerformancePage() {
   useEffect(() => {
     void Promise.resolve().then(loadData);
 
+    const debouncedLoad = debounce(() => {
+      void loadData();
+    }, 200);
+
     // Subscribe to realtime updates
     const tasksChannel = subscribeToTable({
       table: 'tasks',
-      callback: () => loadData(),
+      callback: debouncedLoad,
     });
     const standupsChannel = subscribeToTable({
       table: 'standups',
-      callback: () => loadData(),
+      callback: debouncedLoad,
     });
     const profilesChannel = subscribeToTable({
       table: 'profiles',
-      callback: () => loadData(),
+      callback: debouncedLoad,
     });
     const activityChannel = subscribeToTable({
       table: 'task_activity',
-      callback: () => loadData(),
+      callback: debouncedLoad,
     });
 
     return () => {

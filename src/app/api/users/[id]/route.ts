@@ -62,6 +62,9 @@ export async function PATCH(
     if (body.status !== undefined && isAdmin) updates.status = body.status;
     if (body.avatar_url !== undefined) updates.avatar_url = body.avatar_url;
     if (body.must_reset_password !== undefined && isAdmin) updates.must_reset_password = body.must_reset_password;
+    if (body.phone !== undefined) updates.phone = body.phone ? sanitizeText(body.phone) : '';
+    if (body.domain !== undefined && isAdmin) updates.domain = body.domain ? sanitizeText(body.domain) : '';
+    if (body.end_date !== undefined && isAdmin) updates.end_date = body.end_date || null;
 
     const admin = createAdminClient();
     const { data, error } = await admin.from('profiles').update(updates).eq('id', id).select().single();
@@ -75,6 +78,7 @@ export async function PATCH(
 
     return Response.json({ data });
   } catch (error) {
+    console.error('PATCH USER FULL ERROR:', error);
     logger.apiError('/api/users/[id] PATCH', error);
     return handleApiError(error);
   }

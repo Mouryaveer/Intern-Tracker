@@ -17,6 +17,7 @@ import {
   Star,
 } from 'lucide-react';
 import { subscribeToTable, unsubscribe } from '@/lib/realtime';
+import { debounce } from '@/lib/debounce';
 
 function getInitials(name: string): string {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -209,18 +210,22 @@ export default function PeoplePage() {
   useEffect(() => {
     void Promise.resolve().then(loadData);
 
+    const debouncedLoad = debounce(() => {
+      void loadData();
+    }, 200);
+
     // Setup realtime subscriptions
     const profilesChannel = subscribeToTable({
       table: 'profiles',
-      callback: () => loadData(),
+      callback: debouncedLoad,
     });
     const teamsChannel = subscribeToTable({
       table: 'teams',
-      callback: () => loadData(),
+      callback: debouncedLoad,
     });
     const tasksChannel = subscribeToTable({
       table: 'tasks',
-      callback: () => loadData(),
+      callback: debouncedLoad,
     });
 
     return () => {

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { subscribeToTable, unsubscribe } from '@/lib/realtime';
+import { debounce } from '@/lib/debounce';
 
 function getInitials(name: string): string {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -419,10 +420,14 @@ export default function MeetingsPage() {
   useEffect(() => {
     void Promise.resolve().then(loadData);
 
+    const debouncedLoad = debounce(() => {
+      void loadData();
+    }, 200);
+
     // Subscribe to meetings updates
     const meetingsChannel = subscribeToTable({
       table: 'meetings',
-      callback: () => loadData(),
+      callback: debouncedLoad,
     });
 
     return () => unsubscribe(meetingsChannel);

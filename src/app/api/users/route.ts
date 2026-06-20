@@ -50,7 +50,7 @@ export async function POST(request: Request) {
       return Response.json({ error: validation.errors.join(', ') }, { status: 400 });
     }
 
-    const { name, email, role, team_id, password } = body;
+    const { name, email, role, team_id, password, phone, domain, end_date } = body;
     const tempPassword = password || 'temp' + Math.random().toString(36).substring(2, 8);
 
     // Create auth user via admin client (bypasses email confirmation)
@@ -80,6 +80,9 @@ export async function POST(request: Request) {
         avatar_url: '',
         status: 'active',
         must_reset_password: true,
+        phone: phone ? sanitizeText(phone) : '',
+        domain: domain ? sanitizeText(domain) : '',
+        end_date: end_date || null,
       })
       .select()
       .single();

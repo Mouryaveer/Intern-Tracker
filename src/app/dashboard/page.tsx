@@ -27,6 +27,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { subscribeToTable, unsubscribe } from '@/lib/realtime';
+import { debounce } from '@/lib/debounce';
 
 function formatRelativeTime(dateStr: string): string {
   const now = new Date();
@@ -129,22 +130,26 @@ export default function DashboardPage() {
     if (user) {
       void Promise.resolve().then(loadDashboardData);
 
+      const debouncedLoad = debounce(() => {
+        void loadDashboardData();
+      }, 200);
+
       // Subscribe to realtime updates
       const tasksChannel = subscribeToTable({
         table: 'tasks',
-        callback: () => loadDashboardData(),
+        callback: debouncedLoad,
       });
       const standupsChannel = subscribeToTable({
         table: 'standups',
-        callback: () => loadDashboardData(),
+        callback: debouncedLoad,
       });
       const meetingsChannel = subscribeToTable({
         table: 'meetings',
-        callback: () => loadDashboardData(),
+        callback: debouncedLoad,
       });
       const activityChannel = subscribeToTable({
         table: 'task_activity',
-        callback: () => loadDashboardData(),
+        callback: debouncedLoad,
       });
 
       return () => {

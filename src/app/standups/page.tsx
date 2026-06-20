@@ -23,6 +23,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import { subscribeToTable, unsubscribe } from '@/lib/realtime';
+import { debounce } from '@/lib/debounce';
 
 function getInitials(name: string): string {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -238,10 +239,14 @@ function TeamStandupView() {
   useEffect(() => {
     void Promise.resolve().then(loadData);
 
+    const debouncedLoad = debounce(() => {
+      void loadData();
+    }, 200);
+
     // Realtime subscriptions
     const standupsChannel = subscribeToTable({
       table: 'standups',
-      callback: () => loadData(),
+      callback: debouncedLoad,
     });
 
     return () => unsubscribe(standupsChannel);

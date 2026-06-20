@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import * as XLSX from 'xlsx';
 import { useAuth } from '@/lib/auth-context';
 import {
   getUsers,
@@ -26,8 +27,10 @@ import {
   KeyRound,
   Search,
   AlertTriangle,
+  Download,
 } from 'lucide-react';
 import { subscribeToTable, unsubscribe } from '@/lib/realtime';
+import { debounce } from '@/lib/debounce';
 
 function getInitials(name: string): string {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -177,6 +180,9 @@ function UserFormModal({ editUser, allTeams, onClose, onSaved }: UserFormModalPr
   const [role, setRole] = useState<UserRole>(editUser?.role || 'intern');
   const [teamId, setTeamId] = useState(editUser?.team_id || '');
   const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState(editUser?.phone || '');
+  const [domain, setDomain] = useState(editUser?.domain || '');
+  const [endDate, setEndDate] = useState(editUser?.end_date ? editUser.end_date.substring(0, 10) : '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -187,11 +193,14 @@ function UserFormModal({ editUser, allTeams, onClose, onSaved }: UserFormModalPr
 
     try {
       if (editUser) {
-        const body: Partial<Pick<Profile, 'name' | 'email' | 'role' | 'team_id'>> & { password?: string } = {
+        const body: Partial<Pick<Profile, 'name' | 'email' | 'role' | 'team_id' | 'phone' | 'domain' | 'end_date'>> & { password?: string } = {
           name,
           email,
           role,
           team_id: teamId || null,
+          phone,
+          domain,
+          end_date: endDate || null,
         };
         if (password) {
           body.password = password;
@@ -212,6 +221,9 @@ function UserFormModal({ editUser, allTeams, onClose, onSaved }: UserFormModalPr
           role,
           team_id: teamId || null,
           password: password || undefined,
+          phone,
+          domain,
+          end_date: endDate || null,
         };
         const res = await fetch('/api/users', {
           method: 'POST',
@@ -270,6 +282,37 @@ function UserFormModal({ editUser, allTeams, onClose, onSaved }: UserFormModalPr
                   {allTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
+            </div>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Phone Number</label>
+                <input
+                  type="tel"
+                  className="form-input"
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  placeholder="e.g., +91 98765 43210"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Domain of Work</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={domain}
+                  onChange={e => setDomain(e.target.value)}
+                  placeholder="e.g., Legal Research"
+                />
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Ending Date</label>
+              <input
+                type="date"
+                className="form-input"
+                value={endDate}
+                onChange={e => setEndDate(e.target.value)}
+              />
             </div>
             <div className="form-group">
               <label className="form-label">
@@ -421,22 +464,26 @@ export default function AdminPage() {
     if (isAdmin) {
       void Promise.resolve().then(loadData);
 
+      const debouncedLoad = debounce(() => {
+        void loadData();
+      }, 200);
+
       // Subscribe to updates
       const profilesChannel = subscribeToTable({
         table: 'profiles',
-        callback: () => loadData(),
+        callback: debouncedLoad,
       });
       const teamsChannel = subscribeToTable({
         table: 'teams',
-        callback: () => loadData(),
+        callback: debouncedLoad,
       });
       const tasksChannel = subscribeToTable({
         table: 'tasks',
-        callback: () => loadData(),
+        callback: debouncedLoad,
       });
       const standupsChannel = subscribeToTable({
         table: 'standups',
-        callback: () => loadData(),
+        callback: debouncedLoad,
       });
 
       return () => {
@@ -564,6 +611,62 @@ export default function AdminPage() {
     }
   };
 
+  const handleExportExcel = () => {
+    const targets = allUsers.filter(u => u.role === 'intern' || u.role === 'lead');
+    
+    const rowsData = targets.map(u => {
+      const team = u.team_id ? teams.find(t => t.id === u.team_id) : null;
+      const teamName = team ? team.name : 'No team';
+      const roleName = u.role.charAt(0).toUpperCase() + u.role.slice(1);
+      const joiningDate = u.created_at ? u.created_at.substring(0, 10) : '';
+      const endingDate = u.end_date ? u.end_date.substring(0, 10) : '—';
+      const statusName = u.status.charAt(0).toUpperCase() + u.status.slice(1);
+      
+      return {
+        'Name': u.name,
+        'Email': u.email,
+        'Phone Number': u.phone || '—',
+        'Role': roleName,
+        'Team': teamName,
+        'Domain of Work': u.domain || '—',
+        'Joining Date': joiningDate,
+        'Ending Date': endingDate,
+        'Status': statusName,
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(rowsData);
+    
+    const max_widths = [
+      { wch: 25 }, // Name
+      { wch: 30 }, // Email
+      { wch: 18 }, // Phone Number
+      { wch: 12 }, // Role
+      { wch: 20 }, // Team
+      { wch: 25 }, // Domain of Work
+      { wch: 15 }, // Joining Date
+      { wch: 15 }, // Ending Date
+      { wch: 12 }  // Status
+    ];
+    worksheet['!cols'] = max_widths;
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Interns & Leads');
+
+    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const dataBlob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    
+    const timestamp = new Date().toISOString().split('T')[0];
+    link.setAttribute('download', `interns_leads_directory_${timestamp}.xlsx`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="animate-slide-up">
       {/* Tabs */}
@@ -623,6 +726,9 @@ export default function AdminPage() {
               <button className="btn btn-outline" onClick={() => { setEditingTeam(null); setShowTeamModal(true); }}>
                 <Plus size={16} /> Create Team
               </button>
+              <button className="btn btn-outline" onClick={handleExportExcel} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Download size={16} /> Export Directory
+              </button>
             </div>
           </div>
 
@@ -671,9 +777,14 @@ export default function AdminPage() {
                 style={{ paddingLeft: 36 }}
               />
             </div>
-            <button className="btn btn-accent" onClick={() => { setEditingUser(null); setShowUserModal(true); }}>
-              <Plus size={16} /> Create User
-            </button>
+            <div style={{ display: 'flex', gap: 'var(--spacing-md)' }}>
+              <button className="btn btn-outline" onClick={handleExportExcel} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Download size={16} /> Export Directory
+              </button>
+              <button className="btn btn-accent" onClick={() => { setEditingUser(null); setShowUserModal(true); }}>
+                <Plus size={16} /> Create User
+              </button>
+            </div>
           </div>
 
           <div className="table-container">

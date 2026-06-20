@@ -1693,7 +1693,6 @@ tbody tr:hover {
 
   .topbar {
     padding: 0 var(--spacing-base);
-    padding-left: 56px;
   }
 
   .page-content {

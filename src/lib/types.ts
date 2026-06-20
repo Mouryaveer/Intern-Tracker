@@ -16,6 +16,9 @@ export interface Profile {
   status: UserStatus;
   must_reset_password: boolean;
   created_at: string;
+  phone?: string;
+  domain?: string;
+  end_date?: string | null;
 }
 
 // Alias for backward compatibility

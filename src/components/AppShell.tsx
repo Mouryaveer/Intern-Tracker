@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import Avatar from './Avatar';
 import ProfileModal from './ProfileModal';
+import { useIsMobile } from '@/lib/useIsMobile';
 import {
   LayoutDashboard,
   ClipboardList,
@@ -335,6 +336,7 @@ function ProtectedContent({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const { isMobile } = useIsMobile();
 
   React.useEffect(() => {
     if (loading) return;
@@ -380,7 +382,7 @@ function ProtectedContent({ children }: { children: React.ReactNode }) {
         onMobileClose={() => setMobileOpen(false)}
         onProfileOpen={() => setProfileOpen(true)}
       />
-      <main className="main-content" style={{ marginLeft: sidebarCollapsed ? 'var(--sidebar-collapsed)' : undefined }}>
+      <main className="main-content" style={{ marginLeft: isMobile ? 0 : (sidebarCollapsed ? 'var(--sidebar-collapsed)' : undefined) }}>
         <TopBar onMobileMenuOpen={() => setMobileOpen(true)} />
         <div className="page-content animate-fade-in">
           {children}

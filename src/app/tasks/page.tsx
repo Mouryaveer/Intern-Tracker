@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { subscribeToTable, unsubscribe } from '@/lib/realtime';
+import { debounce } from '@/lib/debounce';
 
 function getInitials(name: string): string {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -867,14 +868,18 @@ function TaskBoardContent() {
   useEffect(() => {
     void Promise.resolve().then(loadData);
 
+    const debouncedLoad = debounce(() => {
+      void loadData();
+    }, 200);
+
     // Setup realtime subscriptions
     const tasksChannel = subscribeToTable({
       table: 'tasks',
-      callback: () => loadData(),
+      callback: debouncedLoad,
     });
     const profilesChannel = subscribeToTable({
       table: 'profiles',
-      callback: () => loadData(),
+      callback: debouncedLoad,
     });
 
     return () => {

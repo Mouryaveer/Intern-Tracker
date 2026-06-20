@@ -199,16 +199,16 @@ function MeetingCard({ meeting, isPast, allUsers, allTeams }: MeetingCardProps) 
         </div>
 
         {/* Info */}
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 600, fontSize: 'var(--font-size-md)', marginBottom: 4 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 'var(--font-size-md)', marginBottom: 4 }} className="truncate">
             {meeting.title}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }} className="truncate">
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
               <Clock size={12} />
               {date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
             </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }} className="truncate">
               <Users size={12} />
               {team?.name || 'All Teams'}
             </span>

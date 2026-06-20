@@ -627,7 +627,7 @@ export default function AdminPage() {
           </div>
 
           {/* Role Breakdown */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--spacing-xl)', marginTop: 'var(--spacing-xl)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 'var(--spacing-xl)', marginTop: 'var(--spacing-xl)' }}>
             {teams.map(team => {
               const members = allUsers.filter(u => u.team_id === team.id && u.status === 'active');
               return (

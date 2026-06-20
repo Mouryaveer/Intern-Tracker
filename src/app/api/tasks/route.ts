@@ -1,12 +1,10 @@
 // GET /api/tasks — List tasks
 // POST /api/tasks — Create task
-import { after } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/logger';
 import { handleApiError } from '@/lib/error-handler';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { validateTaskInput, sanitizeText } from '@/lib/validators';
-import { triggerTaskNotification } from '@/lib/task-notifications';
 
 export async function GET(request: Request) {
   try {
@@ -102,14 +100,6 @@ export async function POST(request: Request) {
     }
 
     logger.taskCreated(data.id, user.id, data.title);
-    triggerTaskNotification({
-      taskId: data.id,
-      type: 'assigned',
-      requestUrl: request.url,
-      cookieHeader: request.headers.get('cookie'),
-      schedule: after,
-    });
-
     return Response.json({ data }, { status: 201 });
   } catch (error) {
     logger.apiError('/api/tasks POST', error);

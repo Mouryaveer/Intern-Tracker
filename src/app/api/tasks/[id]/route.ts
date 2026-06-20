@@ -1,13 +1,11 @@
 // GET /api/tasks/[id] — Get task
 // PATCH /api/tasks/[id] — Update task
 // DELETE /api/tasks/[id] — Delete task
-import { after } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { logger } from '@/lib/logger';
 import { handleApiError } from '@/lib/error-handler';
 import { sanitizeText } from '@/lib/validators';
-import { triggerTaskNotification } from '@/lib/task-notifications';
 import type { NextRequest } from 'next/server';
 
 export async function GET(
@@ -139,20 +137,6 @@ export async function PATCH(
     }
 
     logger.taskUpdated(id, user.id, updates);
-    if (
-      Object.prototype.hasOwnProperty.call(updates, 'assignee_id')
-      && currentTask.assignee_id !== data.assignee_id
-      && data.assignee_id
-    ) {
-      triggerTaskNotification({
-        taskId: data.id,
-        type: 'reassigned',
-        requestUrl: request.url,
-        cookieHeader: request.headers.get('cookie'),
-        schedule: after,
-      });
-    }
-
     return Response.json({ data });
   } catch (error) {
     logger.apiError('/api/tasks/[id] PATCH', error);

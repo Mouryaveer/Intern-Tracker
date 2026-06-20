@@ -76,41 +76,37 @@ export default function DashboardPage() {
   const loadDashboardData = useCallback(async () => {
     if (!user) return;
     try {
-      // Parallel fetches for efficiency
+      const today = new Date().toISOString().split('T')[0];
+      const tasksPromise = isAdmin
+        ? getTasks()
+        : isLead && user.team_id
+          ? getTasksByTeam(user.team_id)
+          : getTasksByAssignee(user.id);
+
+      // Parallel fetches for speed and efficiency
       const [
         fetchedAllUsers,
         fetchedAllTeams,
         fetchedUpcomingMeetings,
         fetchedRecentActivities,
+        scopedTasks,
+        fetchedTodayStandup,
+        fetchedTodayStandups,
       ] = await Promise.all([
         getUsers(),
         getTeams(),
         getUpcomingMeetings(),
         getRecentActivities(8),
+        tasksPromise,
+        getTodayStandup(user.id),
+        getStandupsByDate(today),
       ]);
 
       setAllUsers(fetchedAllUsers);
       setAllTeams(fetchedAllTeams);
       setUpcomingMeetings(fetchedUpcomingMeetings.slice(0, 3));
       setRecentActivities(fetchedRecentActivities);
-
-      // Tasks scoping based on role
-      let scopedTasks: Task[] = [];
-      if (isAdmin) {
-        scopedTasks = await getTasks();
-      } else if (isLead && user.team_id) {
-        scopedTasks = await getTasksByTeam(user.team_id);
-      } else {
-        scopedTasks = await getTasksByAssignee(user.id);
-      }
       setTasks(scopedTasks);
-
-      // Standups data
-      const today = new Date().toISOString().split('T')[0];
-      const [fetchedTodayStandup, fetchedTodayStandups] = await Promise.all([
-        getTodayStandup(user.id),
-        getStandupsByDate(today),
-      ]);
       setTodayStandup(fetchedTodayStandup);
       setTodayStandups(fetchedTodayStandups);
 
@@ -176,10 +172,12 @@ export default function DashboardPage() {
       ? `New task assigned: ${latestTask.title}`
       : `${unseenAssignedTasks.length} new tasks assigned. Latest: ${latestTask.title}`;
 
-    showToast('info', message, 9000);
+    showToast('info', message, 9000, () => {
+      router.push(`/tasks?taskId=${latestTask.id}`);
+    });
     unseenAssignedTasks.forEach(task => seenTaskIds.add(task.id));
     localStorage.setItem(storageKey, JSON.stringify(Array.from(seenTaskIds)));
-  }, [isIntern, loading, showToast, tasks, user]);
+  }, [isIntern, loading, showToast, tasks, user, router]);
 
   if (loading || !user) {
     return (

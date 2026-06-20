@@ -18,7 +18,6 @@ import {
   Menu,
   ChevronLeft,
   ChevronRight,
-  Bell,
   Settings,
   Sun,
   Moon,
@@ -61,6 +60,7 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose, onProfileOpen
     const savedTheme = localStorage.getItem('theme');
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     const activeTheme = savedTheme === 'dark' || (!savedTheme && prefersDark) ? 'dark' : 'light';
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTheme(activeTheme);
     if (activeTheme === 'dark') {
       document.documentElement.classList.add('dark');
@@ -83,6 +83,7 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose, onProfileOpen
 
   React.useEffect(() => {
     if (collapsed) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShowLogoutConfirm(false);
     }
   }, [collapsed]);
@@ -115,11 +116,11 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose, onProfileOpen
         <div className="sidebar-header">
           <div className="sidebar-logo" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
             <Image 
-              src="/turn2law-icon-v2.png" 
+              src="/turn2law-logo.png" 
               alt="Turn2Law Icon" 
               width={32}
               height={32}
-              style={{ width: '32px', height: '32px', objectFit: 'contain', display: 'block', borderRadius: 'var(--radius-sm)' }} 
+              style={{ width: '32px', height: '32px', objectFit: 'contain', display: 'block', filter: 'invert(1)' }} 
             />
             {!collapsed && (
               <div>
@@ -234,16 +235,6 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose, onProfileOpen
                   )}
                   
                   <div className="sidebar-footer-actions">
-                    <button
-                      type="button"
-                      className="sidebar-footer-btn sidebar-btn-notifications"
-                      title="Notifications"
-                      aria-label="Notifications"
-                    >
-                      <Bell size={16} />
-                      <span className="sidebar-btn-badge" />
-                    </button>
-                    
                     <button
                       type="button"
                       className="sidebar-footer-btn sidebar-btn-theme"

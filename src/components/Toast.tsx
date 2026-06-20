@@ -14,14 +14,15 @@ interface Toast {
   type: ToastType;
   message: string;
   duration?: number;
+  onClick?: () => void;
 }
 
 interface ToastContextType {
-  showToast: (type: ToastType, message: string, duration?: number) => void;
+  showToast: (type: ToastType, message: string, duration?: number, onClick?: () => void) => void;
   success: (message: string) => void;
   error: (message: string) => void;
   warning: (message: string) => void;
-  info: (message: string) => void;
+  info: (message: string, duration?: number, onClick?: () => void) => void;
 }
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
@@ -55,6 +56,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
 
   return (
     <div
+      onClick={toast.onClick}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -71,6 +73,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
         minWidth: '280px',
         maxWidth: '420px',
         animation: 'toast-slide-in 0.3s ease-out',
+        cursor: toast.onClick ? 'pointer' : 'default',
       }}
     >
       <span style={{ color: colors.icon, flexShrink: 0 }}>
@@ -78,7 +81,10 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
       </span>
       <span style={{ flex: 1 }}>{toast.message}</span>
       <button
-        onClick={() => onDismiss(toast.id)}
+        onClick={(e) => {
+          e.stopPropagation();
+          onDismiss(toast.id);
+        }}
         style={{
           background: 'none',
           border: 'none',
@@ -101,9 +107,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
-  const showToast = useCallback((type: ToastType, message: string, duration?: number) => {
+  const showToast = useCallback((type: ToastType, message: string, duration?: number, onClick?: () => void) => {
     const id = Math.random().toString(36).substring(2, 9);
-    setToasts(prev => [...prev, { id, type, message, duration }]);
+    setToasts(prev => [...prev, { id, type, message, duration, onClick }]);
   }, []);
 
   const value: ToastContextType = {
@@ -111,7 +117,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     success: (msg) => showToast('success', msg),
     error: (msg) => showToast('error', msg),
     warning: (msg) => showToast('warning', msg),
-    info: (msg) => showToast('info', msg),
+    info: (msg, duration, onClick) => showToast('info', msg, duration, onClick),
   };
 
   return (

@@ -137,6 +137,15 @@ class Logger {
     });
   }
 
+  userPermanentlyDeleted(targetUserId: string, adminId: string, email: string, name: string) {
+    this.log('warn', 'User permanently deleted by admin', {
+      userId: adminId,
+      entityType: 'user',
+      entityId: targetUserId,
+      metadata: { email, name },
+    });
+  }
+
   forcePasswordReset(targetUserId: string, adminId: string) {
     this.log('info', 'Force password reset by admin', {
       userId: adminId,

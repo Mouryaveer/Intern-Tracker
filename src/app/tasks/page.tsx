@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { useToast } from '@/components/Toast';
 import {
@@ -183,7 +184,7 @@ function AssignTaskModal({ task, allUsers, allTeams, onClose, onAssigned }: Assi
 
   // Role hierarchy
   const assignableUsers = isAdmin
-    ? activeUsers.filter(u => u.role === 'lead')
+    ? activeUsers.filter(u => u.role === 'lead' || u.role === 'intern')
     : isLead
       ? activeUsers.filter(u => u.role === 'intern' && u.team_id === user?.team_id)
       : [];
@@ -193,7 +194,12 @@ function AssignTaskModal({ task, allUsers, allTeams, onClose, onAssigned }: Assi
   const handleAssign = async (userId: string) => {
     if (!user) return;
     try {
-      await updateTask(task.id, { assignee_id: userId || null });
+      const assignedUser = userId ? allUsers.find(u => u.id === userId) : null;
+      const updates: Partial<Task> = { assignee_id: userId || null };
+      if (assignedUser?.team_id) {
+        updates.team_id = assignedUser.team_id;
+      }
+      await updateTask(task.id, updates);
       onAssigned();
       onClose();
     } catch (err) {
@@ -226,7 +232,7 @@ function AssignTaskModal({ task, allUsers, allTeams, onClose, onAssigned }: Assi
           </div>
 
           <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-            {isAdmin ? 'Assign to a Lead:' : 'Assign to an Intern in your team:'}
+            {isAdmin ? 'Assign to a Lead or Intern:' : 'Assign to an Intern in your team:'}
           </p>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)', maxHeight: 320, overflowY: 'auto' }}>
@@ -254,7 +260,7 @@ function AssignTaskModal({ task, allUsers, allTeams, onClose, onAssigned }: Assi
 
             {assignableUsers.length === 0 && (
               <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)', textAlign: 'center', padding: 'var(--spacing-lg)' }}>
-                No {isAdmin ? 'leads' : 'interns'} available to assign.
+                No {isAdmin ? 'leads or interns' : 'interns'} available to assign.
               </p>
             )}
 
@@ -325,7 +331,7 @@ function CreateTaskModal({ allUsers, allTeams, onClose, onCreated }: CreateTaskM
 
   // Role hierarchy
   const assignableUsers = isAdmin
-    ? activeUsers.filter(u => u.role === 'lead')
+    ? activeUsers.filter(u => u.role === 'lead' || u.role === 'intern')
     : isLead
       ? activeUsers.filter(u => u.role === 'intern' && u.team_id === user?.team_id)
       : [];
@@ -400,7 +406,20 @@ function CreateTaskModal({ allUsers, allTeams, onClose, onCreated }: CreateTaskM
               </div>
               <div className="form-group">
                 <label className="form-label">Assignee</label>
-                <select className="form-select" value={assigneeId} onChange={e => setAssigneeId(e.target.value)}>
+                <select
+                  className="form-select"
+                  value={assigneeId}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setAssigneeId(val);
+                    if (val) {
+                      const u = allUsers.find(user => user.id === val);
+                      if (u?.team_id) {
+                        setTeamId(u.team_id);
+                      }
+                    }
+                  }}
+                >
                   <option value="">Unassigned</option>
                   {assignableUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
                 </select>
@@ -449,7 +468,7 @@ function TaskDetailDrawer({ task, allUsers, onClose, onUpdated }: TaskDetailDraw
 
   // Role hierarchy for assignee dropdown
   const assignableUsers = isAdmin
-    ? activeUsers.filter(u => u.role === 'lead')
+    ? activeUsers.filter(u => u.role === 'lead' || u.role === 'intern')
     : isLead
       ? activeUsers.filter(u => u.role === 'intern' && u.team_id === user?.team_id)
       : [];
@@ -498,6 +517,7 @@ function TaskDetailDrawer({ task, allUsers, onClose, onUpdated }: TaskDetailDraw
   const handleSave = async () => {
     if (!user) return;
     try {
+      const assignedUser = editAssignee ? allUsers.find(u => u.id === editAssignee) : null;
       await updateTask(task.id, {
         title: editTitle,
         description: editDescription,
@@ -506,6 +526,7 @@ function TaskDetailDrawer({ task, allUsers, onClose, onUpdated }: TaskDetailDraw
         assignee_id: editAssignee || null,
         due_date: editDueDate || null,
         status: editStatus,
+        ...(assignedUser?.team_id ? { team_id: assignedUser.team_id } : {}),
       });
       setEditing(false);
       onUpdated();
@@ -786,7 +807,7 @@ function TaskDetailDrawer({ task, allUsers, onClose, onUpdated }: TaskDetailDraw
 }
 
 // ── Main Task Board Page ──
-export default function TaskBoardPage() {
+function TaskBoardContent() {
   const { user, isAdmin, isLead, isIntern } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [allUsers, setAllUsers] = useState<Profile[]>([]);
@@ -798,6 +819,10 @@ export default function TaskBoardPage() {
   const [assignTask, setAssignTask] = useState<Task | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<TaskStatus | null>(null);
   
+  const searchParams = useSearchParams();
+  const taskIdParam = searchParams?.get('taskId');
+  const [hasAutoOpened, setHasAutoOpened] = useState(false);
+
   // Set default filters based on role
   const getDefaultTeamFilter = () => isIntern ? 'own' : (isLead ? user?.team_id || 'all' : 'all');
   const getDefaultAssigneeFilter = () => isIntern ? user?.id || 'all' : 'all';
@@ -823,12 +848,21 @@ export default function TaskBoardPage() {
       setTasks(fetchedTasks);
       setAllUsers(fetchedUsers);
       setAllTeams(fetchedTeams);
+
+      // Auto-open task if taskId is provided in search params
+      if (taskIdParam && !hasAutoOpened) {
+        const task = fetchedTasks.find(t => t.id === taskIdParam);
+        if (task) {
+          setSelectedTask(task);
+          setHasAutoOpened(true);
+        }
+      }
     } catch (err) {
       console.error('Error loading tasks board data:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [taskIdParam, hasAutoOpened]);
 
   useEffect(() => {
     void Promise.resolve().then(loadData);
@@ -963,10 +997,10 @@ export default function TaskBoardPage() {
               <div 
                 key={status} 
                 style={{ 
-                  background: 'var(--color-surface)', 
-                  border: '1px solid var(--color-border)', 
-                  borderRadius: 'var(--radius-lg)',
-                  overflow: 'hidden'
+                   background: 'var(--color-surface)', 
+                   border: '1px solid var(--color-border)', 
+                   borderRadius: 'var(--radius-lg)',
+                   overflow: 'hidden'
                 }}
               >
                 <button
@@ -1149,5 +1183,17 @@ export default function TaskBoardPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function TaskBoardPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ padding: 'var(--spacing-xl) 0' }}>
+        <div className="skeleton-pulse" style={{ height: 40, width: 300, background: 'var(--color-surface)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--spacing-xl)' }} />
+      </div>
+    }>
+      <TaskBoardContent />
+    </Suspense>
   );
 }

@@ -25,6 +25,7 @@ import {
   UserCheck,
   KeyRound,
   Search,
+  AlertTriangle,
 } from 'lucide-react';
 import { subscribeToTable, unsubscribe } from '@/lib/realtime';
 
@@ -40,6 +41,126 @@ function generateTempPassword(): string {
   const bytes = new Uint8Array(4);
   crypto.getRandomValues(bytes);
   return `temp${Array.from(bytes, byte => byte.toString(36).padStart(2, '0')).join('').slice(0, 6)}`;
+}
+
+// ── Danger Confirm Modal (Permanent Delete) ──
+interface DangerConfirmModalProps {
+  userName: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  loading: boolean;
+}
+
+function DangerConfirmModal({ userName, onConfirm, onCancel, loading }: DangerConfirmModalProps) {
+  const [typed, setTyped] = React.useState('');
+  const match = typed.trim() === userName.trim();
+
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div
+        className="modal-content"
+        onClick={e => e.stopPropagation()}
+        style={{ maxWidth: 460, border: '1.5px solid rgba(239,68,68,0.35)' }}
+      >
+        {/* Header */}
+        <div className="modal-header" style={{ borderBottom: '1px solid rgba(239,68,68,0.2)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: '50%',
+              background: 'rgba(239,68,68,0.12)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              <AlertTriangle size={18} style={{ color: '#EF4444' }} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, color: '#EF4444', fontSize: 'var(--font-size-md)' }}>
+                Permanently Delete User
+              </div>
+              <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: 2 }}>
+                This action is irreversible
+              </div>
+            </div>
+          </div>
+          <button className="btn btn-ghost btn-icon" onClick={onCancel} disabled={loading}>
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-lg)' }}>
+          {/* Warning banner */}
+          <div style={{
+            background: 'rgba(239,68,68,0.06)',
+            border: '1px solid rgba(239,68,68,0.2)',
+            borderRadius: 'var(--radius-md)',
+            padding: 'var(--spacing-md)',
+            fontSize: 'var(--font-size-sm)',
+            color: 'var(--color-text)',
+            lineHeight: 1.6,
+          }}>
+            You are about to <strong>permanently delete</strong> the account for{' '}
+            <strong style={{ color: '#EF4444' }}>{userName}</strong>.
+            <br /><br />
+            This will remove:
+            <ul style={{ paddingLeft: 'var(--spacing-lg)', marginTop: 'var(--spacing-xs)', color: 'var(--color-text-secondary)' }}>
+              <li>Their login credentials</li>
+              <li>Their profile &amp; settings</li>
+              <li>All their tasks and standups</li>
+            </ul>
+            <strong style={{ color: '#EF4444' }}>This cannot be undone.</strong>
+          </div>
+
+          {/* Type-to-confirm */}
+          <div className="form-group">
+            <label className="form-label">
+              Type <strong>{userName}</strong> to confirm
+            </label>
+            <input
+              className="form-input"
+              placeholder={userName}
+              value={typed}
+              onChange={e => setTyped(e.target.value)}
+              style={{
+                borderColor: typed.length > 0 ? (match ? 'var(--color-done)' : '#EF4444') : undefined,
+              }}
+              autoFocus
+            />
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="modal-footer">
+          <button type="button" className="btn btn-outline" onClick={onCancel} disabled={loading}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!match || loading}
+            onClick={onConfirm}
+            style={{
+              background: match ? '#DC2626' : 'rgba(239,68,68,0.3)',
+              color: 'white',
+              border: 'none',
+              padding: '0.5rem 1.25rem',
+              borderRadius: 'var(--radius-md)',
+              fontWeight: 600,
+              fontSize: 'var(--font-size-sm)',
+              cursor: match && !loading ? 'pointer' : 'not-allowed',
+              opacity: loading ? 0.7 : 1,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <Trash2 size={14} />
+            {loading ? 'Deleting...' : 'Delete Permanently'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ── Create/Edit User Modal ──
@@ -273,6 +394,8 @@ export default function AdminPage() {
   const [editingUser, setEditingUser] = useState<Profile | null>(null);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -374,22 +497,21 @@ export default function AdminPage() {
     }
   };
 
-  const handleDeleteUser = async (userId: string, userName: string) => {
-    if (confirm(`Permanently delete "${userName}"? This cannot be undone and will remove all their data.`)) {
-      try {
-        await fetch(`/api/users/${userId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ _permanent_delete: true }),
-        });
-        // Use admin auth delete
-        const delRes = await fetch(`/api/users/${userId}/delete`, { method: 'DELETE' });
-        if (!delRes.ok) {
-          // Fallback: just deactivate
-          await fetch(`/api/users/${userId}`, { method: 'DELETE' });
-        }
-        await loadData();
-      } catch (err) { alert(getErrorMessage(err, 'Error deleting user')); }
+  const handleDeleteUser = async () => {
+    if (!deleteTarget) return;
+    setDeleteLoading(true);
+    try {
+      const res = await fetch(`/api/users/${deleteTarget.id}/permanent`, { method: 'DELETE' });
+      if (!res.ok) {
+        const e = await res.json();
+        throw new Error(e.error || 'Failed to delete user');
+      }
+      setDeleteTarget(null);
+      await loadData();
+    } catch (err) {
+      alert(getErrorMessage(err, 'Error permanently deleting user'));
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -640,9 +762,9 @@ export default function AdminPage() {
                           {u.id !== user.id && (
                             <button
                               className="btn btn-ghost btn-icon btn-sm"
-                              onClick={() => handleDeleteUser(u.id, u.name)}
+                              onClick={() => setDeleteTarget({ id: u.id, name: u.name })}
                               title="Permanently Delete"
-                              style={{ color: 'var(--color-blocked)' }}
+                              style={{ color: '#EF4444' }}
                             >
                               <Trash2 size={14} />
                             </button>
@@ -732,6 +854,15 @@ export default function AdminPage() {
           allUsers={allUsers}
           onClose={() => { setShowTeamModal(false); setEditingTeam(null); }}
           onSaved={loadData}
+        />
+      )}
+
+      {deleteTarget && (
+        <DangerConfirmModal
+          userName={deleteTarget.name}
+          onConfirm={handleDeleteUser}
+          onCancel={() => setDeleteTarget(null)}
+          loading={deleteLoading}
         />
       )}
     </div>

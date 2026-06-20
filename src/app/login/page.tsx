@@ -3,7 +3,8 @@
 import React, { useState } from "react";
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { Mail, Lock, Eye, EyeOff, ArrowUpRight, AlertCircle } from "lucide-react";
+import Image from "next/image";
+import { Mail, Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
 import styles from './login.module.css';
 
 export default function LoginPage() {
@@ -126,16 +127,13 @@ export default function LoginPage() {
             className={styles.logoContainer}
             style={{ backgroundColor: colors.paper }}
           >
-            <span
-              className={styles.logoText}
-              style={{ color: colors.navy }}
-            >
-              N
-            </span>
-            <ArrowUpRight
-              className={styles.logoArrow}
-              style={{ color: colors.navy }}
-              strokeWidth={3}
+            <Image
+              src="/turn2law-logo.png"
+              alt="Turn2Law Logo"
+              width={52}
+              height={52}
+              className={styles.logoImage}
+              priority
             />
           </div>
 
@@ -192,9 +190,16 @@ export default function LoginPage() {
       >
         <div
           className={styles.cornerBadge}
-          style={{ backgroundColor: colors.navy, color: colors.paper }}
+          style={{ backgroundColor: colors.navy }}
         >
-          N
+          <Image
+            src="/turn2law-logo.png"
+            alt="Turn2Law"
+            width={22}
+            height={22}
+            className={styles.cornerBadgeImg}
+            priority
+          />
         </div>
 
         <form onSubmit={handleSubmit} className={styles.formWrapper}>

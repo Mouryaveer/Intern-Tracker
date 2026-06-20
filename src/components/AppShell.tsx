@@ -18,6 +18,10 @@ import {
   Menu,
   ChevronLeft,
   ChevronRight,
+  Bell,
+  Settings,
+  Sun,
+  Moon,
 } from 'lucide-react';
 
 // ── Navigation Items ──
@@ -50,6 +54,38 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose, onProfileOpen
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout, isAdmin } = useAuth();
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+
+  React.useEffect(() => {
+    const savedTheme = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const activeTheme = savedTheme === 'dark' || (!savedTheme && prefersDark) ? 'dark' : 'light';
+    setTheme(activeTheme);
+    if (activeTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const nextTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(nextTheme);
+    if (nextTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  };
+
+  React.useEffect(() => {
+    if (collapsed) {
+      setShowLogoutConfirm(false);
+    }
+  }, [collapsed]);
 
   const handleNavClick = (href: string) => {
     router.push(href);
@@ -79,7 +115,7 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose, onProfileOpen
         <div className="sidebar-header">
           <div className="sidebar-logo" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
             <Image 
-              src="/turn2law-icon.png" 
+              src="/turn2law-icon-v2.png" 
               alt="Turn2Law Icon" 
               width={32}
               height={32}
@@ -150,41 +186,104 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose, onProfileOpen
         </nav>
 
         {/* Footer — User Info */}
-        <div className="sidebar-footer">
-          <div className="sidebar-user">
-            <button
-              onClick={onProfileOpen}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, borderRadius: '50%' }}
-              title="Edit profile photo"
-            >
-              <Avatar name={user?.name || '?'} avatarUrl={user?.avatar_url} size="md" />
-            </button>
-            {!collapsed && user && (
-              <div className="sidebar-user-info" style={{ flex: 1 }}>
-                <div className="sidebar-user-name">{user.name}</div>
-                <div className="sidebar-user-role">{user.role}</div>
+        <div className={`sidebar-footer${collapsed ? ' sidebar-footer--collapsed' : ''}`}>
+          {showLogoutConfirm && !collapsed ? (
+            <div className="sidebar-logout-confirm">
+              <div className="logout-confirm-title">Sign Out?</div>
+              <div className="logout-confirm-desc">Are you sure you want to log out?</div>
+              <div className="logout-confirm-buttons">
+                <button
+                  type="button"
+                  className="btn-logout-confirm"
+                  onClick={handleLogout}
+                  aria-label="Confirm sign out"
+                >
+                  Sign Out
+                </button>
+                <button
+                  type="button"
+                  className="btn-logout-cancel"
+                  onClick={() => setShowLogoutConfirm(false)}
+                  aria-label="Cancel sign out"
+                >
+                  Cancel
+                </button>
               </div>
-            )}
-            {!collapsed && (
-              <button
-                onClick={handleLogout}
-                style={{ 
-                  color: 'rgba(255,255,255,0.5)', 
-                  background: 'none', 
-                  border: 'none', 
-                  cursor: 'pointer',
-                  padding: '4px',
-                  borderRadius: '6px',
-                  transition: 'all 150ms ease',
-                }}
-                title="Sign out"
-                onMouseEnter={(e) => (e.currentTarget.style.color = '#DC2626')}
-                onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}
-              >
-                <LogOut size={18} />
-              </button>
-            )}
-          </div>
+            </div>
+          ) : (
+            <>
+              <div className="sidebar-user">
+                {/* Avatar — always visible */}
+                <button
+                  type="button"
+                  onClick={onProfileOpen}
+                  className="sidebar-avatar-btn"
+                  title="View Profile"
+                  aria-label="View Profile"
+                >
+                  <Avatar name={user?.name || '?'} avatarUrl={user?.avatar_url} size="md" />
+                </button>
+
+                {/* User details & buttons — hidden when collapsed */}
+                <div className={`sidebar-footer-content sidebar-footer-fade${collapsed ? ' sidebar-footer-fade--hidden' : ''}`}>
+                  {user && (
+                    <div className="sidebar-user-details" onClick={onProfileOpen}>
+                      <div className="sidebar-user-name">{user.name}</div>
+                      <div className="sidebar-user-role">{user.role}</div>
+                    </div>
+                  )}
+                  
+                  <div className="sidebar-footer-actions">
+                    <button
+                      type="button"
+                      className="sidebar-footer-btn sidebar-btn-notifications"
+                      title="Notifications"
+                      aria-label="Notifications"
+                    >
+                      <Bell size={16} />
+                      <span className="sidebar-btn-badge" />
+                    </button>
+                    
+                    <button
+                      type="button"
+                      className="sidebar-footer-btn sidebar-btn-theme"
+                      title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+                      aria-label="Toggle Theme"
+                      onClick={toggleTheme}
+                    >
+                      {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="sidebar-footer-btn sidebar-btn-settings"
+                      title="Settings"
+                      aria-label="Settings"
+                      onClick={onProfileOpen}
+                    >
+                      <Settings size={16} />
+                    </button>
+
+                    <button
+                      type="button"
+                      className="sidebar-footer-btn sidebar-btn-logout"
+                      title="Sign Out"
+                      aria-label="Sign Out"
+                      onClick={() => setShowLogoutConfirm(true)}
+                    >
+                      <LogOut size={16} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Meta row: version + copyright — fades out when collapsed */}
+              <div className={`sidebar-footer-meta sidebar-footer-fade${collapsed ? ' sidebar-footer-fade--hidden' : ''}`}>
+                <span>v1.0.0</span>
+                <span>© 2026 Turn2Law</span>
+              </div>
+            </>
+          )}
         </div>
       </aside>
     </>
